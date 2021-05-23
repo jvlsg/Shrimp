@@ -1,9 +1,12 @@
 use std::{io, process::ExitStatus};
 
-// use shrimp::{run_command, Pipeline};
+use shrimp::{parse_command, Pipeline};
 
 fn main() {
     loop {
+        //PROMPT
+        print!("> ");
+
         //READ A RAW LINE
         let mut buffer = String::new();
         io::stdin().read_line(&mut buffer).unwrap();
@@ -29,6 +32,9 @@ fn main() {
                 // let p = Pipeline::new(input);
                 // p.run();
                 dbg!(input);
+                let mut c = parse_command(input).unwrap();
+                let mut child = c.spawn().unwrap();
+                child.wait();
             }
         }
     }

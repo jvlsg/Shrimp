@@ -1,8 +1,10 @@
 use std::{
+    collections::HashMap,
+    fs::File,
     // io::Result,
     process::{Command, Stdio},
-    fs::File,
 };
+
 #[derive(Debug)]
 pub struct Pipeline {
     commands: Vec<Command>,
@@ -31,7 +33,7 @@ impl Pipeline {
     //         run_command(c_iter.next().unwrap(), None, Some(Stdio::piped()), None).unwrap();
 
     //     dbg!(&last_output);
-        
+
     //     while let Some(c) = c_iter.next(){
     //         dbg!(&c);
     //         last_output = run_command(
@@ -47,136 +49,163 @@ impl Pipeline {
     // }
 }
 
-/// Parses a string and returns a Command ready to be Executed, or and error. 
-pub fn parse_command(
-    raw_cmd_string: &str,
-) -> Result<Command,String> {
+/// Parses a string and returns a Command ready to be Executed, or and error.
+pub fn parse_command(raw_cmd_string: &str) -> Result<Command, String> {
     let cmd_string = String::from(raw_cmd_string);
     let mut words = cmd_string.split_whitespace();
-    
-    //Get the Program to Run
-    let program =  words.next();
-    if program.is_none(){
+
+    //Parse program
+    let program = words.next();
+    if program.is_none() {
         return Err(String::from("Empty Program"));
     }
+
     let mut command = Command::new(program.unwrap());
 
-    while let Some(w) = words.next(){
+    while let Some(w) = words.next() {
         match w {
-            //Redirections
-            "<" | ">" => {
+            _ if redirections::is_redirection(w) => {
                 let filename = words.next();
-                
-                if filename.is_none(){ 
-                    return Err(String::from("Empty File redirection")); 
+                if filename.is_none() {
+                    return Err(String::from("Empty File redirection"));
                 }
                 let filename = filename.unwrap();
-
-                let file = File::open(filename).expect("Failed Opening file");
-
-                if w == "<" {
-                    command.stdin(Stdio::from(file));
-                }
-                else{
-                    command.stdout(Stdio::from(file));
-                }
+                redirections::redirect(w, filename, &mut command)?;
             }
             //Arguments
             _ => {
                 command.arg(&w);
-            },
+            }
         }
     }
     dbg!(&command);
     Ok(command)
 }
 
-///
-//runcmd
-/*
-run_command(command, file_descriptors) -> Result<>
-runs a single command, creates subprocess, sets file_descriptors
+mod redirections {
+    use std::fs::File;
+    use std::process::{Command, Stdio};
 
-COMMAND ARGS <INPUT >
-INPUT: [n]<word
-OUTPUT: [n]>[|]word
-*/
-// pub fn run_command(
-//     raw_cmd_string: &str,
-//     stdin: Option<Stdio>,
-//     stdout: Option<Stdio>,
-//     stderr: Option<Stdio>,
-// ) -> Result<ChildStdout> {
-//     let mut words = String::from(raw_cmd_string);
-//     let mut words = words.split_ascii_whitespace();
+    pub fn is_redirection(token: &str) -> bool {
+        match token {
+            "<" | ">" | "1>" | "2>" | ">>" | "&>" | "&>>" => true,
+            _ => false,
+        }
+    }
 
-//     let command = words.next().unwrap();
-//     let mut args: Vec<&str> = vec![];
+    pub fn redirect(
+        redirection: &str,
+        filename: &str,
+        command: &mut Command,
+    ) -> Result<(), String> {
+        if let Ok(file) = File::create(filename) {
+            command.stdout(Stdio::from(file));
+        }
+        match redirection {
+            "<" => read_in(filename, command),
+            ">" | "1>" => write_out(filename, command),
+            "2>" => write_err(filename, command),
+            ">>" => append_out(filename, command),
+            "&>" => write_out_err(filename, command),
+            "&>>" => append_out_err(filename, command),
+            _ => panic!("Invalid redirection"),
+        }
+    }
 
-//     let stdin = stdin.unwrap_or(Stdio::inherit());
-//     let stdout = stdout.unwrap_or(Stdio::inherit());
-//     let stderr = stderr.unwrap_or(Stdio::inherit());
+    fn read_in(filename: &str, command: &mut Command) -> Result<(), String> {
+        unimplemented!();
+        if let Ok(file) = File::open(filename) {
+            dbg!(&file);
+            command.stdin(Stdio::from(file));
+            return Ok(());
+        } else {
+            Err(format!("Error Opening File {}", filename))
+        }
+    }
 
-//     //Parse the rest
-//     //TODO: Try to get input / output file
-//     while let Some(w) = words.next() {
-//         match w {
-//             _ => args.push(w),
-//         }
-//     }
+    fn write_out(filename: &str, command: &mut Command) -> Result<(), String> {
+        if let Ok(file) = File::create(filename) {
+            command.stdout(Stdio::from(file));
+            return Ok(());
+        } else {
+            Err(format!("Error Opening File {}", filename))
+        }
+    }
 
-//     let mut child = Command::new(command)
-//         .args(args)
-//         .stdin(stdin)
-//         .stdout(stdout)
-//         .stderr(stderr)
-//         .spawn()?;
-//     child.wait();
-//     Ok(child.stdout.unwrap())
-// }
+    fn write_err(filename: &str, command: &mut Command) -> Result<(), String> {
+        if let Ok(file) = File::create(filename) {
+            command.stderr(Stdio::from(file));
+            return Ok(());
+        } else {
+            Err(format!("Error Opening File {}", filename))
+        }
+    }
+
+    //Write output and error
+    fn write_out_err(filename: &str, command: &mut Command) -> Result<(), String> {
+        if let Ok(file) = File::create(filename) {
+            //TODO IMPROVE TRY_CLONE ERROR HANDLING
+            command.stderr(Stdio::from(file.try_clone().unwrap()));
+            command.stdout(Stdio::from(file));
+            return Ok(());
+        } else {
+            Err(format!("Error Opening File {}", filename))
+        }
+    }
+
+    fn append_out(filename: &str, command: &mut Command) -> Result<(), String> {
+        unimplemented!();
+    }
+    fn append_out_err(filename: &str, command: &mut Command) -> Result<(), String> {
+        unimplemented!();
+    }
+}
 
 #[cfg(test)]
-mod test{
+mod test {
     use super::*;
     #[test]
-    fn test_simple_cmd(){
+    fn test_parse_simple_cmd(){
         let c = parse_command("ls");
         assert_eq!(c.is_ok(),true);
-        let mut c = c.unwrap();
-        let output = c.output().expect("Failed LS");
-        assert_eq!(output.status.success(),true);
     }
 
     #[test]
-    fn test_simple_cmd_existing_input(){
+    fn test_parse_simple_cmd_existing_input() {
         let c = parse_command("ls -la < tests/input > tests/output");
-        assert_eq!(c.is_ok(),true);
+        assert_eq!(c.is_ok(), true);
     }
     #[test]
-    fn test_simple_cmd_non_existing_input(){
+    fn test_parse_simple_cmd_empty_output() {
+        let c = parse_command("ls -la < ");
+        dbg!(&c);
+        assert_eq!(c.is_ok(), false);
+    }
+
+    #[test]
+    fn test_parse_simple_cmd_non_existing_input() {
         let c = parse_command("ls -la < tests/inputs > tests/output");
-        assert_eq!(c.is_ok(),false);
-    }    
+        assert_eq!(c.is_ok(), false);
+    }
 
 
-    fn test_simple_cmd_create_new_output(){
+    fn test_simple_cmd_create_new_output() {
         let c = parse_command("ls -la < tests/input > tests/output_new");
-        assert_eq!(c.is_ok(),true);
+        assert_eq!(c.is_ok(), true);
     }
 
-    fn test_simple_cmd_overwrite_output(){
+    fn test_simple_cmd_overwrite_output() {
         let c = parse_command("ls -la < tests/input > tests/output");
-        assert_eq!(c.is_ok(),true);
+        assert_eq!(c.is_ok(), true);
     }
 
-    fn test_simple_cmd_append_output(){
+    fn test_simple_cmd_append_output() {
         let c = parse_command("ls -la < tests/input > tests/output");
-        assert_eq!(c.is_ok(),true);
-    }    
+        assert_eq!(c.is_ok(), true);
+    }
 
-    fn test_simple_cmd_redir_stderr(){
+    fn test_simple_cmd_redir_stderr() {
         let c = parse_command("ls -la < tests/input > tests/output");
-        assert_eq!(c.is_ok(),true);
-    }    
-
+        assert_eq!(c.is_ok(), true);
+    }
 }
