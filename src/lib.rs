@@ -98,9 +98,6 @@ mod redirections {
         filename: &str,
         command: &mut Command,
     ) -> Result<(), String> {
-        if let Ok(file) = File::create(filename) {
-            command.stdout(Stdio::from(file));
-        }
         match redirection {
             "<" => read_in(filename, command),
             ">" | "1>" => write_out(filename, command),
@@ -112,11 +109,11 @@ mod redirections {
         }
     }
 
+    ///Sets stdin of the command as a file given by the filename
     fn read_in(filename: &str, command: &mut Command) -> Result<(), String> {
-        unimplemented!();
         if let Ok(file) = File::open(filename) {
             dbg!(&file);
-            command.stdin(Stdio::from(file));
+            command.stdin(file);
             return Ok(());
         } else {
             Err(format!("Error Opening File {}", filename))
@@ -125,7 +122,7 @@ mod redirections {
 
     fn write_out(filename: &str, command: &mut Command) -> Result<(), String> {
         if let Ok(file) = File::create(filename) {
-            command.stdout(Stdio::from(file));
+            command.stdout(file);
             return Ok(());
         } else {
             Err(format!("Error Opening File {}", filename))
@@ -134,7 +131,7 @@ mod redirections {
 
     fn write_err(filename: &str, command: &mut Command) -> Result<(), String> {
         if let Ok(file) = File::create(filename) {
-            command.stderr(Stdio::from(file));
+            command.stderr(file);
             return Ok(());
         } else {
             Err(format!("Error Opening File {}", filename))
@@ -145,8 +142,8 @@ mod redirections {
     fn write_out_err(filename: &str, command: &mut Command) -> Result<(), String> {
         if let Ok(file) = File::create(filename) {
             //TODO IMPROVE TRY_CLONE ERROR HANDLING
-            command.stderr(Stdio::from(file.try_clone().unwrap()));
-            command.stdout(Stdio::from(file));
+            command.stderr(file.try_clone().unwrap());
+            command.stdout(file);
             return Ok(());
         } else {
             Err(format!("Error Opening File {}", filename))
@@ -165,32 +162,38 @@ mod redirections {
 mod test {
     use super::*;
     #[test]
-    fn test_parse_simple_cmd(){
+    fn test_parse_simple_cmd() {
         let c = parse_command("ls");
-        assert_eq!(c.is_ok(),true);
+        assert_eq!(c.is_ok(), true);
     }
 
     #[test]
     fn test_parse_simple_cmd_existing_input() {
-        let c = parse_command("ls -la < tests/input > tests/output");
+        let c = parse_command("wc -c < tests/input > tests/output");
         assert_eq!(c.is_ok(), true);
     }
     #[test]
     fn test_parse_simple_cmd_empty_output() {
-        let c = parse_command("ls -la < ");
+        let c = parse_command("wc -c < ");
         dbg!(&c);
         assert_eq!(c.is_ok(), false);
     }
 
     #[test]
     fn test_parse_simple_cmd_non_existing_input() {
-        let c = parse_command("ls -la < tests/inputs > tests/output");
+        let c = parse_command("wc -c < tests/inputs > tests/output");
         assert_eq!(c.is_ok(), false);
     }
 
-
+    #[test]
     fn test_simple_cmd_create_new_output() {
         let c = parse_command("ls -la < tests/input > tests/output_new");
+        assert_eq!(c.is_ok(), true);
+    }
+
+    #[test]
+    fn test_simple_cmd_output_err() {
+        let c = parse_command("ping a 2> tests/err");
         assert_eq!(c.is_ok(), true);
     }
 

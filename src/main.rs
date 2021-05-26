@@ -1,4 +1,4 @@
-use std::{io, process::ExitStatus};
+use std::{io::{self,Write}, process::ExitStatus};
 
 use shrimp::{parse_command, Pipeline};
 
@@ -6,7 +6,7 @@ fn main() {
     loop {
         //PROMPT
         print!("> ");
-
+        io::stdout().flush().unwrap();
         //READ A RAW LINE
         let mut buffer = String::new();
         io::stdin().read_line(&mut buffer).unwrap();
@@ -32,9 +32,18 @@ fn main() {
                 // let p = Pipeline::new(input);
                 // p.run();
                 dbg!(input);
-                let mut c = parse_command(input).unwrap();
-                let mut child = c.spawn().unwrap();
-                child.wait();
+                match parse_command(input){
+                    //Valid Syntax, File paths, etc.
+                    Ok(mut c)=>{
+                        if let Ok(mut child) = c.spawn(){
+                            child.wait();
+                        }
+                        //TODO Improve error handling
+                    }
+                    Err(msg) => {
+                        eprintln!("{}",msg);
+                    }
+                }
             }
         }
     }
