@@ -1,4 +1,7 @@
-use std::{io::{self,Write}, process::ExitStatus};
+use std::{
+    io::{self, Write},
+    process::ExitStatus,
+};
 
 use shrimp::{parse_command, Pipeline};
 
@@ -32,16 +35,16 @@ fn main() {
                 // let p = Pipeline::new(input);
                 // p.run();
                 dbg!(input);
-                match parse_command(input){
+                match parse_command(input) {
                     //Valid Syntax, File paths, etc.
-                    Ok(mut c)=>{
-                        if let Ok(mut child) = c.spawn(){
+                    Ok(mut c) => {
+                        if let Ok(mut child) = c.spawn() {
                             child.wait();
                         }
                         //TODO Improve error handling
                     }
                     Err(msg) => {
-                        eprintln!("{}",msg);
+                        eprintln!("{}", msg);
                     }
                 }
             }
