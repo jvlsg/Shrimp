@@ -1,4 +1,7 @@
-use std::process::Command;
+use std::{
+    io::{Error, ErrorKind, Result},
+    process::Command,
+};
 
 #[derive(Debug)]
 pub struct Pipeline {
@@ -45,14 +48,15 @@ impl Pipeline {
 }
 
 /// Parses a string and returns a Command ready to be Executed, or and error.
-pub fn parse_command(raw_cmd_string: &str) -> Result<Command, String> {
+pub fn parse_command(raw_cmd_string: &str) -> Result<Command> {
     let cmd_string = String::from(raw_cmd_string);
     let mut words = cmd_string.split_whitespace();
 
     //Parse program
     let program = words.next();
     if program.is_none() {
-        return Err(String::from("Empty Program"));
+        let e = Error::new(ErrorKind::InvalidInput, "Empty Program");
+        return Err(e);
     }
 
     let mut command = Command::new(program.unwrap());
@@ -62,7 +66,11 @@ pub fn parse_command(raw_cmd_string: &str) -> Result<Command, String> {
             _ if redirections::is_redirection(w) => {
                 let filename = words.next();
                 if filename.is_none() {
-                    return Err(String::from("Empty File redirection"));
+                    let e = Error::new(
+                        ErrorKind::InvalidInput,
+                        String::from("Empty File redirection"),
+                    );
+                    return Err(e);
                 }
                 let filename = filename.unwrap();
                 redirections::redirect(w, filename, &mut command)?;
@@ -78,18 +86,17 @@ pub fn parse_command(raw_cmd_string: &str) -> Result<Command, String> {
 }
 
 mod redirections {
-    use std::fs::{File, OpenOptions};
-    use std::process::{Command, Stdio};
+    use std::{
+        fs::{File, OpenOptions},
+        io::Result,
+        process::Command,
+    };
 
     pub fn is_redirection(token: &str) -> bool {
         matches!(token, "<" | ">" | "1>" | "2>" | ">>" | "&>" | "&>>")
     }
 
-    pub fn redirect(
-        redirection: &str,
-        filename: &str,
-        command: &mut Command,
-    ) -> Result<(), String> {
+    pub fn redirect(redirection: &str, filename: &str, command: &mut Command) -> Result<()> {
         match redirection {
             "<" => read_in(filename, command),
             ">" | "1>" => write_out(filename, command),
@@ -103,72 +110,58 @@ mod redirections {
     }
 
     //Sets stdin of the command as a file given by the filename
-    fn read_in(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = File::open(filename) {
-            dbg!(&file);
-            command.stdin(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn read_in(filename: &str, command: &mut Command) -> Result<()> {
+        let file = File::open(filename)?;
+        command.stdin(file);
+        Ok(())
     }
 
-    fn write_out(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = File::create(filename) {
-            command.stdout(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn write_out(filename: &str, command: &mut Command) -> Result<()> {
+        let file = File::create(filename)?;
+        command.stdout(file);
+        Ok(())
     }
 
-    fn write_err(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = File::create(filename) {
-            command.stderr(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn write_err(filename: &str, command: &mut Command) -> Result<()> {
+        let file = File::create(filename)?;
+        command.stderr(file);
+        Ok(())
     }
 
     //Write output and error
-    fn write_out_err(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = File::create(filename) {
-            //TODO IMPROVE TRY_CLONE ERROR HANDLING
-            command.stderr(file.try_clone().unwrap());
-            command.stdout(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn write_out_err(filename: &str, command: &mut Command) -> Result<()> {
+        let file = File::create(filename)?;
+        command.stderr(file.try_clone().unwrap());
+        command.stdout(file);
+        Ok(())
     }
 
-    fn append_out(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = OpenOptions::new().append(true).create(true).open(filename) {
-            command.stdout(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn append_out(filename: &str, command: &mut Command) -> Result<()> {
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(filename)?;
+        command.stdout(file);
+        Ok(())
     }
 
-    fn append_err(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = OpenOptions::new().append(true).create(true).open(filename) {
-            command.stderr(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn append_err(filename: &str, command: &mut Command) -> Result<()> {
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(filename)?;
+        command.stderr(file);
+        Ok(())
     }
 
-    fn append_out_err(filename: &str, command: &mut Command) -> Result<(), String> {
-        if let Ok(file) = OpenOptions::new().append(true).create(true).open(filename) {
-            command.stderr(file.try_clone().unwrap());
-            command.stdout(file);
-            Ok(())
-        } else {
-            Err(format!("Error Opening File {}", filename))
-        }
+    fn append_out_err(filename: &str, command: &mut Command) -> Result<()> {
+        let file = OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(filename)?;
+        command.stderr(file.try_clone().unwrap());
+        command.stdout(file);
+        Ok(())
     }
 }
 
