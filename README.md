@@ -1,6 +1,13 @@
 # Shrimp
 Shellzao Rust Implementation
 
+
+## Design Notes
+* Basic Unit of execution is the Pipeline.
+* The Pipeline is composed by Steps (other shells sometimes use "Simple Command" as terminology).
+* Steps are either a built-in functions, or external programs
+* Redirections (and possibly pipes?) require whitespace as delimitators
+
 ## Sources
 - https://gitlab.com/monaco/posixeg/-/blob/master/exercises/shell/foosh.txt
 - https://doc.rust-lang.org/std/process/index.html
