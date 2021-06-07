@@ -1,7 +1,6 @@
 use std::{
-    cmp,
     io::{Error, ErrorKind, Result},
-    process::Command,
+    process::{Command, Output, ExitStatus, Stdio},
 };
 
 mod builtins {
@@ -10,21 +9,88 @@ mod builtins {
 }
 
 #[derive(Debug)]
+/// Step, the basic Unit of execution of a Pipeline. Can either be a Shrimp Built-in function or a Command
+/// Design wise - a "Wrapper" enum was chosen because the Std::Command is a simple struct, it has no trait that builtins could implement (CommandExt are sealed)
+/// It will implement an API based on the functions of Std::Command
 pub enum Step {
     Command(std::process::Command),
     Builtin(crate::builtins::Builtin),
 }
 
 impl Step {
-    pub fn new_step(raw_step_str: &str) -> Result<Step> {
+    pub fn new(raw_step_str: &str) -> Result<Step> {
         //TODO Improve this step creation - CHECK IF BUILT-IN
         //Return error if Empty String
-        let c = parse_command(raw_step_str)?;
+        let c = Step::parse_command(raw_step_str)?;
         Ok(Step::Command(c))
+    }
+
+    /// Parses a string and returns a Command ready to be Executed, or and error.
+    pub fn parse_command(raw_cmd_str: &str) -> Result<Command> {
+        let cmd_string = String::from(raw_cmd_str);
+        let mut words = cmd_string.split_whitespace();
+
+        //Parse program
+        let program = words.next();
+        if program.is_none() {
+            let e = Error::new(ErrorKind::InvalidInput, "Empty Program");
+            return Err(e);
+        }
+
+        let mut command = Command::new(program.unwrap());
+
+        while let Some(w) = words.next() {
+            match w {
+                _ if redirections::is_redirection(w) => {
+                    let filename = words.next();
+                    if filename.is_none() {
+                        let e = Error::new(
+                            ErrorKind::InvalidInput,
+                            String::from("Empty File redirection"),
+                        );
+                        return Err(e);
+                    }
+                    let filename = filename.unwrap();
+                    redirections::redirect(w, filename, &mut command)?;
+                }
+                //Arguments
+                _ => {
+                    command.arg(&w);
+                }
+            }
+        }
+        dbg!(&command);
+        Ok(command)
+    }
+
+    // pub fn stdout(&mut self, out: Stdio){
+    //     match self {
+    //         Step::Command(mut c) =>{
+    //             // c.stdout(out);
+    //             self = Step::Builtin;
+    //         },
+    //         _ => unimplemented!(),
+    //     }
+    // }
+
+    pub fn output(&mut self) -> Result<Output> {
+        match self {
+            Step::Command(c) => {
+                c.output()
+            },
+            _ => unimplemented!(),
+        }
+    }
+
+    pub fn run(&mut self) -> Result<ExitStatus> {
+        match self {
+            Step::Command(c) => c.spawn().unwrap().wait(),
+            _ => unimplemented!(),
+        }        
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Pipe {
     Std,
     Err,
@@ -47,26 +113,24 @@ impl Pipeline {
         loop {
             //Next pipe index - could be standard or Error
             let next_pipe = pipeline_string.find("|");
-            dbg!(next_pipe);            
 
-            //No more pipes, add remaining of the string to steps
+            //No / No more pipes, add remaining of the string to steps
+            //This guarantees at least one step to the Pipeline
             if next_pipe.is_none() {
-                steps.push(Step::new_step(&pipeline_string)?);
+                steps.push(Step::new(&pipeline_string)?);
                 break;
             }
 
             let next_pipe = next_pipe.unwrap();
 
             let next_err_pipe = pipeline_string.find("|&");
-            dbg!(next_err_pipe);
 
             //Check if the next pipe is standard , or error
             let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
-                        
-            let (step_str, remainder) = pipeline_string.split_at(next_pipe);
-            steps.push(Step::new_step(&step_str)?);
 
-            dbg!(is_err_pipe);
+            let (step_str, remainder) = pipeline_string.split_at(next_pipe);
+            steps.push(Step::new(&step_str)?);
+
             if is_err_pipe {
                 pipes.push(Pipe::Err);
                 pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
@@ -80,66 +144,32 @@ impl Pipeline {
         Ok(Pipeline { steps, pipes })
     }
 
-    // pub fn run(&self) -> () {
-    //     let mut c_iter = self.commands.iter();
+    ///Executes all Steps, piping outputs/errors into inputs, consuming the steps and pipes
+    pub fn run(&mut self) -> Result<()> {
 
-    //     //1st
-    //     let mut last_output =
-    //         run_command(c_iter.next().unwrap(), None, Some(Stdio::piped()), None).unwrap();
+        //We know that all pipelines will have at least one Step
+        let mut curr_step = self.steps.pop().unwrap();
 
-    //     dbg!(&last_output);
+        //Run current step, pipe
+        while !self.steps.is_empty(){
+            
+            let last_output = curr_step.output();
+            //Get next step
+            curr_step = self.steps.pop().unwrap();
+            
+            // match self.pipes.pop().unwrap(){
+            //     Std => {
+            //         curr_step.stdout()
+            //     },
+            //     Err => {
 
-    //     while let Some(c) = c_iter.next(){
-    //         dbg!(&c);
-    //         last_output = run_command(
-    //             c,
-    //             Some(Stdio::from(last_output)),
-    //             None,
-    //             None,
-    //         )
-    //         .unwrap()
-    //     }
-
-    //     ()
-    // }
-}
-
-/// Parses a string and returns a Command ready to be Executed, or and error.
-pub fn parse_command(raw_cmd_str: &str) -> Result<Command> {
-    let cmd_string = String::from(raw_cmd_str);
-    let mut words = cmd_string.split_whitespace();
-
-    //Parse program
-    let program = words.next();
-    if program.is_none() {
-        let e = Error::new(ErrorKind::InvalidInput, "Empty Program");
-        return Err(e);
-    }
-
-    let mut command = Command::new(program.unwrap());
-
-    while let Some(w) = words.next() {
-        match w {
-            _ if redirections::is_redirection(w) => {
-                let filename = words.next();
-                if filename.is_none() {
-                    let e = Error::new(
-                        ErrorKind::InvalidInput,
-                        String::from("Empty File redirection"),
-                    );
-                    return Err(e);
-                }
-                let filename = filename.unwrap();
-                redirections::redirect(w, filename, &mut command)?;
-            }
-            //Arguments
-            _ => {
-                command.arg(&w);
-            }
+            //     }
+            // }
         }
+
+        curr_step.run()?;
+        return Ok(());
     }
-    dbg!(&command);
-    Ok(command)
 }
 
 mod redirections {
@@ -231,13 +261,13 @@ mod test {
 
         #[test]
         fn test_parse_simple_cmd() {
-            let c = parse_command("ls");
+            let c = Step::parse_command("ls");
             assert_eq!(c.is_ok(), true);
         }
 
         #[test]
         fn test_parse_simple_cmd_io_redirections() {
-            let c = parse_command("wc -c < tests/lorem > tests/output");
+            let c = Step::parse_command("wc -c < tests/lorem > tests/output");
             assert_eq!(c.is_ok(), true);
 
             c.unwrap().spawn().unwrap().wait().unwrap();
@@ -250,21 +280,21 @@ mod test {
 
         #[test]
         fn test_parse_simple_cmd_empty_output() {
-            let c = parse_command("wc -c < ");
+            let c = Step::parse_command("wc -c < ");
             dbg!(&c);
             assert!(c.is_err())
         }
 
         #[test]
         fn test_parse_simple_cmd_non_existing_input() {
-            let c = parse_command("wc -c < tests/inputs > tests/output");
+            let c = Step::parse_command("wc -c < tests/inputs > tests/output");
             assert!(c.is_err())
         }
 
         #[test]
         fn test_simple_cmd_create_new_output() {
             {
-                let c = parse_command("wc -c < tests/lorem > tests/output_new");
+                let c = Step::parse_command("wc -c < tests/lorem > tests/output_new");
                 assert_eq!(c.is_ok(), true);
 
                 c.unwrap().spawn().unwrap().wait().unwrap();
@@ -279,7 +309,7 @@ mod test {
 
         #[test]
         fn test_simple_cmd_output_err() {
-            let c = parse_command("ping a 2> tests/err");
+            let c = Step::parse_command("ping a 2> tests/err");
             assert_eq!(c.is_ok(), true);
 
             c.unwrap().spawn().unwrap().wait().unwrap();
@@ -292,10 +322,10 @@ mod test {
 
         #[test]
         fn test_simple_cmd_overwrite_output() {
-            let c = parse_command("wc -c < tests/lorem > tests/output");
+            let c = Step::parse_command("wc -c < tests/lorem > tests/output");
             c.unwrap().spawn().unwrap().wait().unwrap();
 
-            let c = parse_command("wc -w < tests/lorem > tests/output");
+            let c = Step::parse_command("wc -w < tests/lorem > tests/output");
             c.unwrap().spawn().unwrap().wait().unwrap();
 
             let mut buff = String::new();
@@ -306,7 +336,7 @@ mod test {
 
         #[test]
         fn test_simple_cmd_append_output() {
-            let c = parse_command("wc -c < tests/lorem > tests/output");
+            let c = Step::parse_command("wc -c < tests/lorem > tests/output");
             assert_eq!(c.is_ok(), true);
 
             c.unwrap().spawn().unwrap().wait().unwrap();
@@ -316,7 +346,7 @@ mod test {
             file.read_to_string(&mut buff).unwrap();
             assert_eq!("447", buff.trim());
 
-            let c = parse_command("wc -w < tests/lorem >> tests/output");
+            let c = Step::parse_command("wc -w < tests/lorem >> tests/output");
             assert_eq!(c.is_ok(), true);
 
             c.unwrap().spawn().unwrap().wait().unwrap();
@@ -329,7 +359,7 @@ mod test {
 
         #[test]
         fn test_simple_cmd_redir_stderr() {
-            let c = parse_command("wc -x 2> tests/output");
+            let c = Step::parse_command("wc -x 2> tests/output");
             assert_eq!(c.is_ok(), true);
 
             c.unwrap().spawn().unwrap().wait().unwrap();
@@ -343,21 +373,34 @@ mod test {
 
     mod pipelines {
         use super::super::*;
-        // use std::fs::{self, File};
-        // use std::io::prelude::*;
 
         #[test]
-        fn simple_pipeline() {
-            let p = Pipeline::new("echo \"asd\" | grep a ").unwrap();
-            dbg!(p.pipes);
-            dbg!(p.steps);
+        fn test_simple_pipeline() {
+            let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+            dbg!(&p.pipes);
+            dbg!(&p.steps);
+            assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
         }
 
         #[test]
-        fn simple_pipe_err() {
-            let p = Pipeline::new("wc -l |& grep e").unwrap();
-            dbg!(p.pipes);
-            dbg!(p.steps);
-        }        
+        fn test_empty_pipe() {
+            let p = Pipeline::new("");
+            assert_eq!(p.is_err(), true);
+            dbg!(&p);
+        }
+
+        #[test]
+        fn test_empty_command() {
+            let p = Pipeline::new("|& ls");
+            assert_eq!(p.is_err(), true);
+            dbg!(&p);
+        }
+
+        #[test]
+        fn test_empty_command_2() {
+            let p = Pipeline::new("echo \"asd\" grep a |& | wc -c");
+            assert_eq!(p.is_err(), true);
+            dbg!(&p);
+        }
     }
 }

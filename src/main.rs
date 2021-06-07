@@ -3,7 +3,7 @@ use std::{
     process::ExitStatus,
 };
 
-use shrimp::{parse_command, Pipeline};
+use shrimp::{Pipeline, Step};
 
 fn main() {
     loop {
@@ -32,10 +32,10 @@ fn main() {
             //     }
             // },
             _ => {
-                // let p = Pipeline::new(input);
-                // p.run();
+                // let mut p = Pipeline::new(input).unwrap();
+                // p.run().unwrap();
                 dbg!(input);
-                match parse_command(input) {
+                match Step::parse_command(input) {
                     //Valid Syntax, File paths, etc.
                     Ok(mut c) => {
                         if let Ok(mut child) = c.spawn() {
