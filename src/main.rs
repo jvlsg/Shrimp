@@ -32,21 +32,21 @@ fn main() {
             //     }
             // },
             _ => {
-                // let mut p = Pipeline::new(input).unwrap();
-                // p.run().unwrap();
-                dbg!(input);
-                match Step::parse_command(input) {
-                    //Valid Syntax, File paths, etc.
-                    Ok(mut c) => {
-                        if let Ok(mut child) = c.spawn() {
-                            child.wait();
-                        }
-                        //TODO Improve error handling
-                    }
-                    Err(msg) => {
-                        eprintln!("{}", msg);
-                    }
-                }
+                let mut p = Pipeline::new(input).unwrap();
+                p.run().unwrap();
+                // dbg!(input);
+                // match Step::parse_command(input) {
+                //     //Valid Syntax, File paths, etc.
+                //     Ok(mut c) => {
+                //         if let Ok(mut child) = c.spawn() {
+                //             child.wait();
+                //         }
+                //         //TODO Improve error handling
+                //     }
+                //     Err(msg) => {
+                //         eprintln!("{}", msg);
+                //     }
+                // }
             }
         }
     }

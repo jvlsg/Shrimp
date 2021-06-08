@@ -1,10 +1,11 @@
 use std::{
     io::{Error, ErrorKind, Result},
-    process::{Command, Output, ExitStatus, Stdio},
+    process::{ChildStdout, Command, ExitStatus, Output, Stdio},
 };
 
 mod builtins {
     #[derive(Debug)]
+    ///Temporarily set as a Struct. Might change to a Trait in the future
     pub struct Builtin;
 }
 
@@ -59,25 +60,43 @@ impl Step {
                 }
             }
         }
-        dbg!(&command);
+        // dbg!(&command);
         Ok(command)
     }
 
-    // pub fn stdout(&mut self, out: Stdio){
-    //     match self {
-    //         Step::Command(mut c) =>{
-    //             // c.stdout(out);
-    //             self = Step::Builtin;
-    //         },
-    //         _ => unimplemented!(),
-    //     }
-    // }
-
-    pub fn output(&mut self) -> Result<Output> {
+    ///Runs the Step, retuning ONLY Stdout
+    pub fn get_output(&mut self) -> Result<ChildStdout> {
         match self {
             Step::Command(c) => {
-                c.output()
-            },
+                let mut child = c.stdout(Stdio::piped()).spawn()?;
+                Ok(child.stdout.take().unwrap())
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    ///Runs the Step, retuning BOTH Stdout and Stderr
+    pub fn get_output_err(&mut self) -> Result<ChildStdout> {
+        match self {
+            Step::Command(c) => {
+                let mut child = c
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .unwrap();
+                child.wait()?;
+                Ok(child.stdout.take().unwrap())
+            }
+            _ => unimplemented!(),
+        }
+    }
+
+    //Reconfigures the step's Input
+    pub fn set_input(&mut self, input: Stdio) {
+        match self {
+            Step::Command(c) => {
+                c.stdin(input);
+            }
             _ => unimplemented!(),
         }
     }
@@ -86,7 +105,7 @@ impl Step {
         match self {
             Step::Command(c) => c.spawn().unwrap().wait(),
             _ => unimplemented!(),
-        }        
+        }
     }
 }
 
@@ -144,32 +163,37 @@ impl Pipeline {
         Ok(Pipeline { steps, pipes })
     }
 
-    ///Executes all Steps, piping outputs/errors into inputs, consuming the steps and pipes
-    pub fn run(&mut self) -> Result<()> {
+    ///Executes all Steps, piping outputs/errors into inputs, 
+    /// consuming the Pipeline
+    pub fn run(self) -> Result<()> {
 
         //We know that all pipelines will have at least one Step
-        let mut curr_step = self.steps.pop().unwrap();
+        //First step will run with the pre-configured input
+        let mut step_iter = self.steps.into_iter();
 
-        //Run current step, pipe
-        while !self.steps.is_empty(){
-            
-            let last_output = curr_step.output();
+        let mut curr_step = step_iter.next().unwrap();        
+        
+        //For each pipe, we redirect output / err according to pipe type
+        for pipe in self.pipes.into_iter(){                
+            dbg!(&curr_step);
+
+            let next_input = match pipe {
+                // we want to collect ONLY stdout
+                Pipe::Std => curr_step.get_output()?,
+                // We want to collect both stderr and stdout
+                Pipe::Err => curr_step.get_output_err()?,
+            };
+            dbg!(&next_input);
             //Get next step
-            curr_step = self.steps.pop().unwrap();
-            
-            // match self.pipes.pop().unwrap(){
-            //     Std => {
-            //         curr_step.stdout()
-            //     },
-            //     Err => {
-
-            //     }
-            // }
+            curr_step = step_iter.next().unwrap();
+            //Feed the input
+            curr_step.set_input(Stdio::from(next_input));
         }
 
+        dbg!(&curr_step);
         curr_step.run()?;
         return Ok(());
-    }
+    }    
 }
 
 mod redirections {
