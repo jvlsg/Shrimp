@@ -16,8 +16,6 @@ fn main() {
         let input = buffer.trim();
 
         //Lets implement bottom-up
-        //1. Read input and create a child process
-        //2. Implement pipelines w/ vec of commands and management of redirections
         //3. Implement sublists, pipelines separated with && and ||
         //4. Implement a List
 
