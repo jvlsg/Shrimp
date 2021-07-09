@@ -1,23 +1,49 @@
 use std::{
-    io::{Error, ErrorKind, Result},
-    process::{ChildStdout, Command, ExitStatus, Output, Stdio},
+    io::{prelude::*, Error, ErrorKind, Result},
+    process::{Command, Output, Stdio},
 };
 
 pub mod redirections;
 
 mod builtins {
     #[derive(Debug)]
-    ///Temporarily set as a Struct. Might change to a Trait in the future
     pub struct Builtin;
+    ///Roughly analogous to process::Command
+    impl Builtin {
+        pub fn new() {
+            ()
+        }
+        //Possibly implement from String to do the parsing, similar to Step::parse_command
+    }
 }
 
-#[derive(Debug)]
 /// Step, the basic Unit of execution of a Pipeline. Can either be a Shrimp Built-in function or a Command
 /// Design wise - a "Wrapper" enum was chosen because the Std::Command is a simple struct, it has no trait that builtins could implement (CommandExt are sealed)
-/// It will implement an API based on the functions of Std::Command
+#[derive(Debug)]
 pub enum Step {
     Command(std::process::Command),
     Builtin(crate::builtins::Builtin),
+}
+
+///Roughly analogous to process::Output mixed with process::ExitStatus.
+/// Since process::ExitStatus is sealed, we can't instantiate it directly. With our own struct, Builtins can use it as well
+#[derive(Debug)]
+pub struct StepOutput {
+    success: bool,
+    code: Option<i32>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl From<Output> for StepOutput {
+    fn from(output: Output) -> StepOutput {
+        Self {
+            stdout: output.stdout,
+            stderr: output.stderr,
+            code: output.status.code(),
+            success: output.status.success(),
+        }
+    }
 }
 
 impl Step {
@@ -25,7 +51,6 @@ impl Step {
     /// Return the enum variant accordingly
     pub fn new(raw_step_str: &str) -> Result<Step> {
         //TODO Improve this step creation - CHECK IF BUILT-IN
-        //Return error if Empty String
         let c = Step::parse_command(raw_step_str)?;
         Ok(Step::Command(c))
     }
@@ -46,17 +71,9 @@ impl Step {
 
         while let Some(w) = words.next() {
             match w {
+                //There can be no arguments after the beginning of redirections
                 _ if redirections::is_redirection(w) => {
-                    let filename = words.next();
-                    if filename.is_none() {
-                        let e = Error::new(
-                            ErrorKind::InvalidInput,
-                            String::from("Empty File redirection"),
-                        );
-                        return Err(e);
-                    }
-                    let filename = filename.unwrap();
-                    redirections::redirect(w, filename, &mut command)?;
+                    break;
                 }
                 //Arguments
                 _ => {
@@ -64,55 +81,22 @@ impl Step {
                 }
             }
         }
-        // dbg!(&command);
         Ok(command)
     }
 
-    ///Runs the Step, retuning the contents of Stdout
-    pub fn get_output(&mut self) -> Result<Stdio> {
+    ///Runs the Step
+    pub fn run(&mut self, stdin: &[u8]) -> Result<StepOutput> {
         match self {
             Step::Command(c) => {
-                let mut child = c.stdout(Stdio::piped()).spawn()?;
-                Ok(Stdio::from(child.stdout.take().unwrap()))
-            }
-            _ => unimplemented!(),
-        }
-    }
-
-    ///Runs the Step, retuning the contents of EITHER Stdout and Stderr, depending on the process' exit code
-    pub fn get_output_err(&mut self) -> Result<Stdio> {
-        match self {
-            Step::Command(c) => {
-                let mut child = c
+                let mut process = c
+                    .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
-                    .spawn()
-                    .unwrap();
-                
-                let exit = child.wait()?;
-                if exit.success(){
-                    return Ok(Stdio::from(child.stdout.take().unwrap()));
-                }
-                return Ok(Stdio::from(child.stderr.take().unwrap()));
+                    .spawn()?;
+                process.stdin.as_ref().unwrap().write_all(stdin)?;
+                process.wait().unwrap();
+                Ok(StepOutput::from(process.wait_with_output()?))
             }
-            _ => unimplemented!(),
-        }
-    }
-
-    //Reconfigures the step's Input
-    pub fn set_input(&mut self, input: Stdio) {
-        match self {
-            Step::Command(c) => {
-                c.stdin(input);
-            }
-            _ => unimplemented!(),
-        }
-    }
-
-    ///Runs the step with it's pre-existing configuration / IO
-    pub fn run(&mut self) -> Result<ExitStatus> {
-        match self {
-            Step::Command(c) => c.spawn().unwrap().wait(),
             _ => unimplemented!(),
         }
     }
@@ -124,119 +108,268 @@ pub enum Pipe {
     Err,
 }
 
-#[derive(Debug)]
 ///A pipeline is composed by Steps (commands or builtins), and Pipes that connect the output from one Stpe to the next
+/// TODO 2021-07-09 Change trait objects to Generics?
 pub struct Pipeline {
     steps: Vec<Step>,
     pipes: Vec<Pipe>,
+    in_src: Option<Box<dyn Read>>,
+    out_dst: Box<dyn Write>,
+    err_dst: Box<dyn Write>,
 }
 
 impl Pipeline {
     pub fn new(raw_pipeline_str: &str) -> Result<Self> {
         let mut pipeline_string = String::from(raw_pipeline_str);
 
-        let mut steps: Vec<Step> = vec![];
-        let mut pipes: Vec<Pipe> = vec![];
+        //     let mut steps: Vec<Step> = vec![];
+        //     let mut pipes: Vec<Pipe> = vec![];
 
-        loop {
-            //Next pipe index - could be standard or Error
-            let next_pipe = pipeline_string.find("|");
+        //     let words = pipeline_string.split_whitespace();
+        //     while let Some(w) = words.next() {
+        //         match w{
+        //         _ if redirections::is_redirection(w) => {
+        //             let filename = words.next();
+        //             if filename.is_none() {
+        //                 let e = Error::new(
+        //                     ErrorKind::InvalidInput,
+        //                     String::from("Empty File redirection"),
+        //                 );
+        //                 return Err(e);
+        //             }
+        //             let filename = filename.unwrap();
 
-            //No / No more pipes, add remaining of the string to steps
-            //This guarantees at least one step to the Pipeline
-            if next_pipe.is_none() {
-                steps.push(Step::new(&pipeline_string)?);
-                break;
-            }
+        //         }
+        //     }
 
-            let next_pipe = next_pipe.unwrap();
+        //     loop {
+        //         //Next pipe index - could be standard or Error
+        //         let next_pipe = pipeline_string.find("|");
 
-            let next_err_pipe = pipeline_string.find("|&");
+        //         //No / No more pipes, add remaining of the string to steps
+        //         //This guarantees at least one step to the Pipeline
+        //         if next_pipe.is_none() {
+        //             steps.push(Step::new(&pipeline_string)?);
+        //             break;
+        //         }
 
-            //Check if the next pipe is standard , or error
-            let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
+        //         let next_pipe = next_pipe.unwrap();
 
-            let (step_str, remainder) = pipeline_string.split_at(next_pipe);
-            steps.push(Step::new(&step_str)?);
+        //         let next_err_pipe = pipeline_string.find("|&");
 
-            if is_err_pipe {
-                pipes.push(Pipe::Err);
-                pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
-            } else {
-                pipes.push(Pipe::Std);
-                pipeline_string = String::from(remainder.strip_prefix("|").unwrap());
-            }
-        }
+        //         //Check if the next pipe is standard , or error
+        //         let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
 
-        dbg!(&steps);
-        Ok(Pipeline { steps, pipes })
+        //         let (step_str, remainder) = pipeline_string.split_at(next_pipe);
+        //         steps.push(Step::new(&step_str)?);
+
+        //         if is_err_pipe {
+        //             pipes.push(Pipe::Err);
+        //             pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
+        //         } else {
+        //             pipes.push(Pipe::Std);
+        //             pipeline_string = String::from(remainder.strip_prefix("|").unwrap());
+        //         }
+        //     }
+
+        //     dbg!(&steps);
+        Ok(Pipeline {
+            pipes: Vec::new(),
+            steps: Vec::new(),
+            in_src: None,
+            out_dst: Box::new(std::io::stdout()),
+            err_dst: Box::new(std::io::stderr()),
+        })
     }
 
-    ///Executes all Steps, piping outputs/errors into inputs, 
-    /// consuming the Pipeline
-    pub fn run(self) -> Result<()> {
+    ///Executes all Steps, piping outputs/errors into inputs,
+    /// consuming the Pipeline and returning the `StepOutput` of the last step
+    pub fn run(mut self) -> Result<StepOutput> {
+        let mut pipeline_input = Vec::new();
 
-        //We know that all pipelines will have at least one Step
-        //First step will run with the pre-configured input
-        let mut step_iter = self.steps.into_iter();
-
-        let mut curr_step = step_iter.next().unwrap();        
-        
-        //For each pipe, we redirect output / err according to pipe type
-        for pipe in self.pipes.into_iter(){                
-            dbg!(&curr_step);
-
-            let next_input = match pipe {
-                // we want to collect ONLY stdout
-                Pipe::Std => curr_step.get_output()?,
-                // We want to collect both stderr and stdout
-                Pipe::Err => curr_step.get_output_err()?,
-            };
-            dbg!(&next_input);
-            //Get next step and Set it's Input
-            curr_step = step_iter.next().unwrap();
-            curr_step.set_input(next_input);
+        //Read pipeline input from in source
+        //TODO 2021-07-09 Improve reading, change to Buffered Reader?
+        if let Some(mut src) = self.in_src {
+            src.read_to_end(&mut pipeline_input)?;
         }
 
-        dbg!(&curr_step);
-        curr_step.run()?;
-        return Ok(());
-    }    
-}
+        let mut step_iter = self.steps.into_iter();
+        let mut curr_step = step_iter.next().unwrap();
 
+        dbg!(&curr_step);
+        dbg!(String::from_utf8_lossy(&pipeline_input));
+
+        let mut last_out = curr_step.run(&pipeline_input)?;
+
+        //For each pipe, we redirect output / err according to pipe type
+        for pipe in self.pipes.into_iter() {
+            let curr_input = match pipe {
+                // we want to collect ONLY stdout
+                Pipe::Std => last_out.stdout,
+                // We want to collect both stderr and stdout
+                Pipe::Err => {
+                    last_out.stdout.append(&mut last_out.stderr);
+                    last_out.stdout
+                }
+            };
+
+            dbg!(String::from_utf8_lossy(&curr_input));
+
+            curr_step = step_iter.next().unwrap();
+
+            dbg!(&curr_step);
+
+            last_out = curr_step.run(&curr_input)?;
+        }
+
+        dbg!(&last_out.code);
+        dbg!(&last_out.success);
+
+        self.out_dst.write_all(&last_out.stdout)?;
+        self.err_dst.write_all(&last_out.stderr)?;
+
+        return Ok(last_out);
+    }
+}
 
 #[cfg(test)]
 mod test {
     mod pipelines {
         use super::super::*;
+        use std::fs::File;
 
         #[test]
         fn test_simple_pipeline() {
-            let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
-            dbg!(&p.pipes);
-            dbg!(&p.steps);
-            assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
+            let p = Pipeline {
+                steps: vec![
+                    Step::new("echo -n abcde").unwrap(),
+                    Step::new("tr -d a").unwrap(),
+                    Step::new("wc -c").unwrap(),
+                ],
+                pipes: vec![Pipe::Std, Pipe::Std],
+                in_src: None,
+                out_dst: Box::new(std::io::stdout()),
+                err_dst: Box::new(std::io::stderr()),
+            };
+
+            let r = p.run().unwrap();
+            assert_eq!(r.success, true);
         }
 
         #[test]
-        fn test_empty_pipe() {
-            let p = Pipeline::new("");
-            assert_eq!(p.is_err(), true);
-            dbg!(&p);
-        }
+        fn test_simple_pipeline_redir_in() {
+            let p = Pipeline {
+                steps: vec![
+                    Step::new("wc -c").unwrap(),
+                ],
+                pipes: vec![],
+                in_src: Some(Box::new(File::open("tests/lorem").unwrap())),
+                out_dst: Box::new(std::io::stdout()),
+                err_dst: Box::new(std::io::stderr()),
+            };
+
+            let r = p.run().unwrap();
+            assert_eq!(r.success, true);
+        }        
 
         #[test]
-        fn test_empty_command() {
-            let p = Pipeline::new("|& ls");
-            assert_eq!(p.is_err(), true);
-            dbg!(&p);
+        fn test_simple_pipeline_err() {
+            let p = Pipeline {
+                steps: vec![
+                    Step::new("echo -n abcde").unwrap(),
+                    Step::new("tr -3 a").unwrap(),
+                    Step::new("wc -c").unwrap(),
+                ],
+                pipes: vec![Pipe::Err, Pipe::Err],
+                in_src: None,
+                out_dst: Box::new(std::io::stdout()),
+                err_dst: Box::new(std::io::stderr()),
+            };
+
+            let r = p.run().unwrap();
+            assert_eq!(r.success, true);
         }
 
-        #[test]
-        fn test_empty_command_2() {
-            let p = Pipeline::new("echo \"asd\" grep a |& | wc -c");
-            assert_eq!(p.is_err(), true);
-            dbg!(&p);
+        //     #[test]
+        //     fn test_simple_pipeline_parsing() {
+        //         let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+        //         dbg!(&p.pipes);
+        //         dbg!(&p.steps);
+        //         assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
+        //     }
+
+        //     #[test]
+        //     fn test_empty_pipe() {
+        //         let p = Pipeline::new("");
+        //         assert_eq!(p.is_err(), true);
+        //         dbg!(&p);
+        //     }
+
+        //     #[test]
+        //     fn test_empty_command() {
+        //         let p = Pipeline::new("|& ls");
+        //         assert_eq!(p.is_err(), true);
+        //         dbg!(&p);
+        //     }
+
+        //     #[test]
+        //     fn test_empty_command_2() {
+        //         let p = Pipeline::new("echo \"asd\" grep a |& | wc -c");
+        //         assert_eq!(p.is_err(), true);
+        //         dbg!(&p);
+        //     }
+    }
+    #[test]
+    fn bytes_test() {
+        use std::io::prelude::*;
+        use std::process::{Command, Stdio};
+        use std::str::FromStr;
+
+        static PANGRAM: &'static str = "the quick brown fox jumped over the lazy dog\n";
+
+        // Spawn the `wc` command
+        let mut process = match Command::new("wc")
+            .arg("-c")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+        {
+            Err(why) => panic!("couldn't spawn wc: {}", why),
+            Ok(process) => process,
+        };
+
+        // Write a string to the `stdin` of `wc`.
+        //
+        // `stdin` has type `Option<ChildStdin>`, but since we know this instance
+        // must have one, we can directly `unwrap` it.
+        match process
+            .stdin
+            .as_ref()
+            .unwrap()
+            .write_all(PANGRAM.as_bytes())
+        {
+            Err(why) => panic!("couldn't write to wc stdin: {}", why),
+            Ok(_) => println!("sent pangram to wc"),
         }
+        process.wait().unwrap();
+        // Because `stdin` does not live after the above calls, it is `drop`ed,
+        // and the pipe is closed.
+        //
+        // This is very important, otherwise `wc` wouldn't start processing the
+        // input we just sent.
+
+        // The `stdout` field also has type `Option<ChildStdout>` so must be unwrapped.
+        let mut s = String::new();
+        match process.stdout.unwrap().read_to_string(&mut s) {
+            Err(why) => panic!("couldn't read wc stdout: {}", why),
+            Ok(_) => print!("wc responded with:\n{}", &s),
+        }
+
+        // ---
+        // let out = process.wait_with_output().unwrap();
+        // let mut s = String::from_utf8_lossy(&out.stdout);
+
+        let x = i32::from_str(&s.trim()).unwrap();
+        println!("{}", x + 1);
     }
 }

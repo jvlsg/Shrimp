@@ -11,6 +11,7 @@
 
 
 ## Redirections
+Are done **at the Pipeline** level. 
 * `<` Read File as input. If file does not exists, it fails
 * `>` Write Output to a new File, or Overwrite file if existing
 * `>>` Write new, or Append if existing, File as Output

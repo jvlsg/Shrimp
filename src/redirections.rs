@@ -1,5 +1,4 @@
-///Module with functions to Handle IO Redirections 
-
+///Module with functions to Handle IO Redirections
 use std::{
     fs::{File, OpenOptions},
     io::Result,
@@ -10,71 +9,73 @@ pub fn is_redirection(token: &str) -> bool {
     matches!(token, "<" | ">" | "1>" | "2>" | ">>" | "&>" | "&>>")
 }
 
-pub fn redirect(redirection: &str, filename: &str, command: &mut Command) -> Result<()> {
+// Possibly
+// pub fn redirect(redirection: &str, filename: &str, &in, &out, &err) -> Result<()> {
+pub fn redirect(redirection: &str, filename: &str) -> Result<()> {
     match redirection {
-        "<" => read_in(filename, command),
-        ">" | "1>" => write_out(filename, command),
-        ">>" => append_out(filename, command),
-        "2>" => write_err(filename, command),
-        "2>>" => append_err(filename, command),
-        "&>" | "2>&1" => write_out_err(filename, command),
-        "&>>" => append_out_err(filename, command),
+        "<" => read_in(filename),
+        ">" | "1>" => write_out(filename),
+        ">>" => append_out(filename),
+        "2>" => write_err(filename),
+        "2>>" => append_err(filename),
+        "&>" | "2>&1" => write_out_err(filename),
+        "&>>" => append_out_err(filename),
         _ => panic!("Invalid redirection"),
     }
 }
 
 //Sets stdin of the command as a file given by the filename
-fn read_in(filename: &str, command: &mut Command) -> Result<()> {
+fn read_in(filename: &str) -> Result<()> {
     let file = File::open(filename)?;
-    command.stdin(file);
+    // command.stdin(file);
     Ok(())
 }
 
-fn write_out(filename: &str, command: &mut Command) -> Result<()> {
+fn write_out(filename: &str) -> Result<()> {
     let file = File::create(filename)?;
-    command.stdout(file);
+    // command.stdout(file);
     Ok(())
 }
 
-fn write_err(filename: &str, command: &mut Command) -> Result<()> {
+fn write_err(filename: &str) -> Result<()> {
     let file = File::create(filename)?;
-    command.stderr(file);
+    // command.stderr(file);
     Ok(())
 }
 
 //Write output and error
-fn write_out_err(filename: &str, command: &mut Command) -> Result<()> {
+fn write_out_err(filename: &str) -> Result<()> {
     let file = File::create(filename)?;
-    command.stderr(file.try_clone().unwrap());
-    command.stdout(file);
+    // command.stderr(file.try_clone().unwrap());
+    // command.stdout(file);
     Ok(())
 }
 
-fn append_out(filename: &str, command: &mut Command) -> Result<()> {
+fn append_out(filename: &str) -> Result<()> {
     let file = OpenOptions::new()
         .append(true)
         .create(true)
         .open(filename)?;
-    command.stdout(file);
+    // command.stdout(file);
     Ok(())
 }
 
-fn append_err(filename: &str, command: &mut Command) -> Result<()> {
+fn append_err(filename: &str) -> Result<()> {
     let file = OpenOptions::new()
         .append(true)
         .create(true)
         .open(filename)?;
-    command.stderr(file);
+    // command.stderr(file);
     Ok(())
 }
 
-fn append_out_err(filename: &str, command: &mut Command) -> Result<()> {
+fn append_out_err(filename: &str) -> Result<()> {
     let file = OpenOptions::new()
         .append(true)
         .create(true)
         .open(filename)?;
-    command.stderr(file.try_clone().unwrap());
-    command.stdout(file);
+    // command.stderr(file.try_clone().unwrap());
+    // command.stdout(file);
     Ok(())
 }
 
