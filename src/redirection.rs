@@ -1,12 +1,80 @@
 ///Module with functions to Handle IO Redirections
 use std::{
     fs::{File, OpenOptions},
-    io::Result,
+    io::{prelude::*, Result},
     process::Command,
+    str::FromStr,
 };
 
-pub fn is_redirection(token: &str) -> bool {
-    matches!(token, "<" | ">" | "1>" | "2>" | ">>" | "&>" | "&>>")
+pub enum Redirection {
+    ReadIn,
+    WriteOut,
+    AppendOut,
+    WriteErr,
+    AppendErr,
+    WriteOutErr,
+    AppendOutErr,
+}
+
+pub struct RedirectionParseError {}
+
+impl FromStr for Redirection {
+    type Err = RedirectionParseError;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "<" => Ok(Redirection::ReadIn),
+            ">" | "1>" => Ok(Redirection::WriteOut),
+            ">>" => Ok(Redirection::WriteOut),
+            "2>" => Ok(Redirection::WriteOut),
+            "2>>" => Ok(Redirection::WriteOut),
+            "&>" | "2>&1" => Ok(Redirection::WriteOut),
+            "&>>" => Ok(Redirection::WriteOut),
+            _ => Err(RedirectionParseError {}),
+        }
+    }
+}
+
+impl Redirection {
+    pub fn is_redirection(s: &str) -> bool{
+
+        if let Ok(_) = Redirection::from_str(s){
+            return true;
+        }
+
+        false
+    }
+
+    pub fn redirect(
+        &self,
+        filename: &str,
+        in_reader: &mut Option<Box<dyn Read>>,
+        out_writer: &mut Option<Box<dyn Write>>,
+        err_writer: &mut Option<Box<dyn Write>>,
+    ) -> () {
+        match self{
+            Redirection::ReadIn => {
+
+            }
+            Redirection::WriteOut => {
+
+            }
+            Redirection::AppendOut => {
+
+            }
+            Redirection::WriteErr => {
+
+            }
+            Redirection::AppendErr => {
+
+            }
+            Redirection::WriteOutErr => {
+
+            }
+            Redirection::AppendOutErr => {
+
+            }
+        }
+    }
 }
 
 // Possibly

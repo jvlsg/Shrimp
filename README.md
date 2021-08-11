@@ -27,6 +27,7 @@ Shellzao Rust Implementation
 - https://hyperpolyglot.org/unix-shells
 - http://zsh.sourceforge.net/Doc/Release/Shell-Grammar.html
 - https://github.com/Swoorup/mysh
+- https://adriann.github.io/rust_parser.html
 
 ## Built-in Commands
 
@@ -51,8 +52,15 @@ Shellzao Rust Implementation
 - [ ] Profiles / configs w/ variables
 - [ ] History
 - [ ] Expansion
+- [ ] Proper parsing
 
 ## Advanced features
 No guarantee of implementing
 - [ ] Scripting compatibility w/ bash
 - [ ] Autocompletion
+- [ ] Parsing (Lexer -> Parser)
+
+### Lexer
+* The Lexical analyzer separates input into tokens.
+* The lexer will read the input character by character and it will try to match the input with each token
+* Regular expressions describe each token

@@ -1,8 +1,6 @@
-use std::{
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
-use shrimp::{Pipeline};
+use shrimp::Pipeline;
 
 fn main() {
     loop {

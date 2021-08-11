@@ -1,12 +1,21 @@
 # Pseudo BNF for Shrimp's grammar
 ```
 <LIST> ::= <SUBLIST ;> | <SUBLIST &> | <SUBLIST>
-<SUBLIST> => <PIPELINE && SUBLIST` | `PIPELINE || SUBLIST` | `PIPELINE`
 
-<PIPELINE> ::= <STEP> <STD_PIPE> <PIPELINE> | <STEP> <ERR_PIPE> <PIPELINE>  | <STEP>
+<SUBLIST> ::=
+    <PIPELINE && SUBLIST> | <PIPELINE> 
+    <SUBLIST> | <PIPELINE>
+
+<PIPELINE> ::=
+    <STEP> <STD_PIPE> <PIPELINE>
+    <STEP> <ERR_PIPE> <PIPELINE>
+    <STEP>
+
 <STD_PIPE> ::= "|"
+
 <ERR_PIPE> ::= "|&"
-<STEP> ::= step\n | step;
+
+<STEP> ::= [Collection of strings]\n | [Collection of strings];
 ```
 
 

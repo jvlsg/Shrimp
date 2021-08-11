@@ -1,18 +1,18 @@
 use std::{
+    fmt,
     io::{prelude::*, Error, ErrorKind, Result},
     process::{Command, Output, Stdio},
+    str::FromStr,
 };
 
-pub mod redirections;
+pub mod redirection;
 
 mod builtins {
     #[derive(Debug)]
     pub struct Builtin;
     ///Roughly analogous to process::Command
     impl Builtin {
-        pub fn new() {
-            ()
-        }
+        pub fn new() {}
         //Possibly implement from String to do the parsing, similar to Step::parse_command
     }
 }
@@ -69,10 +69,10 @@ impl Step {
 
         let mut command = Command::new(program.unwrap());
 
-        while let Some(w) = words.next() {
+        for w in words {
             match w {
-                //There can be no arguments after the beginning of redirections
-                _ if redirections::is_redirection(w) => {
+                //There can be no arguments after the beginning of redirection
+                _ if redirection::Redirection::is_redirection(w) => {
                     break;
                 }
                 //Arguments
@@ -113,72 +113,94 @@ pub enum Pipe {
 pub struct Pipeline {
     steps: Vec<Step>,
     pipes: Vec<Pipe>,
-    in_src: Option<Box<dyn Read>>,
-    out_dst: Box<dyn Write>,
-    err_dst: Box<dyn Write>,
+    in_reader: Option<Box<dyn Read>>,
+    out_writer: Box<dyn Write>,
+    err_writer: Box<dyn Write>,
+}
+
+impl fmt::Debug for Pipeline {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Pipeline")
+            .field("Steps", &self.steps)
+            .field("Pipes", &self.pipes)
+            .finish()
+    }
 }
 
 impl Pipeline {
-    pub fn new(raw_pipeline_str: &str) -> Result<Self> {
+    /// TODO 2021-07-21 Currently the parsing implementation is naive, improve it.
+    pub fn new(raw_pipeline_str: &str) -> Result<Pipeline> {
         let mut pipeline_string = String::from(raw_pipeline_str);
 
-        //     let mut steps: Vec<Step> = vec![];
-        //     let mut pipes: Vec<Pipe> = vec![];
+        let mut steps: Vec<Step> = vec![];
+        let mut pipes: Vec<Pipe> = vec![];
 
-        //     let words = pipeline_string.split_whitespace();
-        //     while let Some(w) = words.next() {
-        //         match w{
-        //         _ if redirections::is_redirection(w) => {
-        //             let filename = words.next();
-        //             if filename.is_none() {
-        //                 let e = Error::new(
-        //                     ErrorKind::InvalidInput,
-        //                     String::from("Empty File redirection"),
-        //                 );
-        //                 return Err(e);
-        //             }
-        //             let filename = filename.unwrap();
+        let in_reader: Option<Box<dyn Read>> = None;
+        let out_writer: Option<Box<dyn Write>> = None;
+        let err_writer: Option<Box<dyn Write>> = None;
 
-        //         }
-        //     }
+        let mut words = pipeline_string.split_whitespace();
 
-        //     loop {
-        //         //Next pipe index - could be standard or Error
-        //         let next_pipe = pipeline_string.find("|");
+        //Find redirection
+        while let Some(w) = words.next() {
+            if let Ok(redir) = redirection::Redirection::from_str(w) {
+                //TODO 2021-08-02 GET REDIRECTION TYPE, SET TO CORRECT VARIABLE
+                //Pipeline only needs the Type of redirection (so it knows which variable to set) and the corresponding
+                //reader / writer
 
-        //         //No / No more pipes, add remaining of the string to steps
-        //         //This guarantees at least one step to the Pipeline
-        //         if next_pipe.is_none() {
-        //             steps.push(Step::new(&pipeline_string)?);
-        //             break;
-        //         }
+                let src_or_dst = words.next();
+                if src_or_dst.is_none() {
+                    return Err(Error::new(ErrorKind::InvalidInput, "Empty redirection"));
+                }
+                let src_or_dst = src_or_dst.unwrap();
 
-        //         let next_pipe = next_pipe.unwrap();
+                //We'll only be able to set the reader / writer (File, Socket, etc) DEPENDING on the redirection Type
+                //
+                /*
+                match redir.get()
+                    RedirWrite =>
+                */
+            }
+        }
 
-        //         let next_err_pipe = pipeline_string.find("|&");
+        //Find Pipes & Steps
+        loop {
+            //Next pipe index - could be standard or Error
+            let next_pipe = pipeline_string.find('|');
 
-        //         //Check if the next pipe is standard , or error
-        //         let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
+            //No / No more pipes, add remaining of the string to steps
+            //This guarantees at least one step to the Pipeline
+            if next_pipe.is_none() {
+                steps.push(Step::new(&pipeline_string)?);
+                break;
+            }
 
-        //         let (step_str, remainder) = pipeline_string.split_at(next_pipe);
-        //         steps.push(Step::new(&step_str)?);
+            let next_pipe = next_pipe.unwrap();
 
-        //         if is_err_pipe {
-        //             pipes.push(Pipe::Err);
-        //             pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
-        //         } else {
-        //             pipes.push(Pipe::Std);
-        //             pipeline_string = String::from(remainder.strip_prefix("|").unwrap());
-        //         }
-        //     }
+            let next_err_pipe = pipeline_string.find("|&");
+
+            //Check if the next pipe is standard , or error
+            let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
+
+            let (step_str, remainder) = pipeline_string.split_at(next_pipe);
+            steps.push(Step::new(&step_str)?);
+
+            if is_err_pipe {
+                pipes.push(Pipe::Err);
+                pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
+            } else {
+                pipes.push(Pipe::Std);
+                pipeline_string = String::from(remainder.strip_prefix("|").unwrap());
+            }
+        }
 
         //     dbg!(&steps);
         Ok(Pipeline {
-            pipes: Vec::new(),
-            steps: Vec::new(),
-            in_src: None,
-            out_dst: Box::new(std::io::stdout()),
-            err_dst: Box::new(std::io::stderr()),
+            pipes,
+            steps,
+            in_reader,
+            out_writer: out_writer.unwrap_or(Box::new(std::io::stdout())),
+            err_writer: err_writer.unwrap_or(Box::new(std::io::stderr())),
         })
     }
 
@@ -187,14 +209,20 @@ impl Pipeline {
     pub fn run(mut self) -> Result<StepOutput> {
         let mut pipeline_input = Vec::new();
 
-        //Read pipeline input from in source
-        //TODO 2021-07-09 Improve reading, change to Buffered Reader?
-        if let Some(mut src) = self.in_src {
+        //Read pipeline input from input source, if any
+        if let Some(mut src) = self.in_reader {
             src.read_to_end(&mut pipeline_input)?;
         }
 
         let mut step_iter = self.steps.into_iter();
-        let mut curr_step = step_iter.next().unwrap();
+
+        let curr_step = step_iter.next();
+
+        if curr_step.is_none() {
+            return Err(Error::new(ErrorKind::InvalidInput, "No Steps on Pipeline"));
+        }
+
+        let mut curr_step = curr_step.unwrap();
 
         dbg!(&curr_step);
         dbg!(String::from_utf8_lossy(&pipeline_input));
@@ -225,10 +253,10 @@ impl Pipeline {
         dbg!(&last_out.code);
         dbg!(&last_out.success);
 
-        self.out_dst.write_all(&last_out.stdout)?;
-        self.err_dst.write_all(&last_out.stderr)?;
+        self.out_writer.write_all(&last_out.stdout)?;
+        self.err_writer.write_all(&last_out.stderr)?;
 
-        return Ok(last_out);
+        Ok(last_out)
     }
 }
 
@@ -239,7 +267,7 @@ mod test {
         use std::fs::File;
 
         #[test]
-        fn test_simple_pipeline() {
+        fn simple_pipeline() {
             let p = Pipeline {
                 steps: vec![
                     Step::new("echo -n abcde").unwrap(),
@@ -247,9 +275,9 @@ mod test {
                     Step::new("wc -c").unwrap(),
                 ],
                 pipes: vec![Pipe::Std, Pipe::Std],
-                in_src: None,
-                out_dst: Box::new(std::io::stdout()),
-                err_dst: Box::new(std::io::stderr()),
+                in_reader: None,
+                out_writer: Box::new(std::io::stdout()),
+                err_writer: Box::new(std::io::stderr()),
             };
 
             let r = p.run().unwrap();
@@ -257,23 +285,35 @@ mod test {
         }
 
         #[test]
-        fn test_simple_pipeline_redir_in() {
+        fn simple_pipeline_redir_in() {
             let p = Pipeline {
-                steps: vec![
-                    Step::new("wc -c").unwrap(),
-                ],
+                steps: vec![Step::new("wc -c").unwrap()],
                 pipes: vec![],
-                in_src: Some(Box::new(File::open("tests/lorem").unwrap())),
-                out_dst: Box::new(std::io::stdout()),
-                err_dst: Box::new(std::io::stderr()),
+                in_reader: Some(Box::new(File::open("tests/lorem").unwrap())),
+                out_writer: Box::new(std::io::stdout()),
+                err_writer: Box::new(std::io::stderr()),
             };
 
             let r = p.run().unwrap();
             assert_eq!(r.success, true);
-        }        
+        }
 
         #[test]
-        fn test_simple_pipeline_err() {
+        fn empty_pipeline() {
+            let p = Pipeline {
+                steps: vec![],
+                pipes: vec![],
+                in_reader: None,
+                out_writer: Box::new(std::io::stdout()),
+                err_writer: Box::new(std::io::stderr()),
+            };
+
+            let r = p.run();
+            assert_eq!(r.is_err(), true);
+        }
+
+        #[test]
+        fn simple_pipeline_err() {
             let p = Pipeline {
                 steps: vec![
                     Step::new("echo -n abcde").unwrap(),
@@ -281,29 +321,28 @@ mod test {
                     Step::new("wc -c").unwrap(),
                 ],
                 pipes: vec![Pipe::Err, Pipe::Err],
-                in_src: None,
-                out_dst: Box::new(std::io::stdout()),
-                err_dst: Box::new(std::io::stderr()),
+                in_reader: None,
+                out_writer: Box::new(std::io::stdout()),
+                err_writer: Box::new(std::io::stderr()),
             };
 
             let r = p.run().unwrap();
             assert_eq!(r.success, true);
         }
 
-        //     #[test]
-        //     fn test_simple_pipeline_parsing() {
-        //         let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
-        //         dbg!(&p.pipes);
-        //         dbg!(&p.steps);
-        //         assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
-        //     }
+        #[test]
+        fn simple_pipeline_parsing() {
+            let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+            dbg!(&p);
+            assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
+        }
 
-        //     #[test]
-        //     fn test_empty_pipe() {
-        //         let p = Pipeline::new("");
-        //         assert_eq!(p.is_err(), true);
-        //         dbg!(&p);
-        //     }
+        #[test]
+        fn empty_pipeline_parsing() {
+            let p = Pipeline::new("");
+            assert_eq!(p.is_err(), true);
+            dbg!(&p);
+        }
 
         //     #[test]
         //     fn test_empty_command() {
