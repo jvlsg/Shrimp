@@ -84,7 +84,7 @@ impl Step {
         Ok(command)
     }
 
-    ///Runs the Step
+    /// Runs the Step
     pub fn run(&mut self, stdin: &[u8]) -> Result<StepOutput> {
         match self {
             Step::Command(c) => {
@@ -135,16 +135,15 @@ impl Pipeline {
         let mut steps: Vec<Step> = vec![];
         let mut pipes: Vec<Pipe> = vec![];
 
-        let in_reader: Option<Box<dyn Read>> = None;
-        let out_writer: Option<Box<dyn Write>> = None;
-        let err_writer: Option<Box<dyn Write>> = None;
+        let mut in_reader: Option<Box<dyn Read>> = None;
+        let mut out_writer: Option<Box<dyn Write>> = None;
+        let mut err_writer: Option<Box<dyn Write>> = None;
 
         let mut words = pipeline_string.split_whitespace();
 
         //Find redirection
         while let Some(w) = words.next() {
             if let Ok(redir) = redirection::Redirection::from_str(w) {
-                //TODO 2021-08-02 GET REDIRECTION TYPE, SET TO CORRECT VARIABLE
                 //Pipeline only needs the Type of redirection (so it knows which variable to set) and the corresponding
                 //reader / writer
 
@@ -155,11 +154,12 @@ impl Pipeline {
                 let src_or_dst = src_or_dst.unwrap();
 
                 //We'll only be able to set the reader / writer (File, Socket, etc) DEPENDING on the redirection Type
-                //
-                /*
-                match redir.get()
-                    RedirWrite =>
-                */
+                redir.configure_redirection(
+                    src_or_dst,
+                    &mut in_reader,
+                    &mut out_writer,
+                    &mut err_writer,
+                )?;
             }
         }
 
@@ -296,6 +296,7 @@ mod test {
 
             let r = p.run().unwrap();
             assert_eq!(r.success, true);
+            
         }
 
         #[test]
@@ -332,9 +333,21 @@ mod test {
 
         #[test]
         fn simple_pipeline_parsing() {
-            let p = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
-            dbg!(&p);
-            assert_eq!(p.pipes, vec![Pipe::Err, Pipe::Std]);
+            let p_str = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+            dbg!(&p_str);
+
+            let p = Pipeline {
+                steps: vec![
+                    Step::new("echo \"asd\"").unwrap(),
+                    Step::new("grep a").unwrap(),
+                    Step::new("wc -c").unwrap(),
+                ],
+                pipes: vec![Pipe::Err, Pipe::Std],
+                in_reader: None,
+                out_writer: Box::new(std::io::stdout()),
+                err_writer: Box::new(std::io::stderr()),
+            };            
+            assert_eq!(p.pipes,p_str.pipes);
         }
 
         #[test]
@@ -344,12 +357,16 @@ mod test {
             dbg!(&p);
         }
 
-        //     #[test]
-        //     fn test_empty_command() {
-        //         let p = Pipeline::new("|& ls");
-        //         assert_eq!(p.is_err(), true);
-        //         dbg!(&p);
-        //     }
+        #[test]
+        fn simple_pipeline_redir_out() {
+            let p_str = Pipeline::new("wc -c < tests/lorem > tests/output").unwrap();
+            dbg!(p_str.run());
+
+            let mut buff = String::new();
+            let mut file = File::open("tests/output").unwrap();
+            file.read_to_string(&mut buff).unwrap();
+            assert_eq!("447", buff.trim());            
+        }
 
         //     #[test]
         //     fn test_empty_command_2() {

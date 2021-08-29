@@ -2,7 +2,8 @@
 use std::{
     fs::{File, OpenOptions},
     io::{prelude::*, Result},
-    process::Command,
+    net::{SocketAddr, ToSocketAddrs},
+    path::Path,
     str::FromStr,
 };
 
@@ -35,118 +36,94 @@ impl FromStr for Redirection {
 }
 
 impl Redirection {
-    pub fn is_redirection(s: &str) -> bool{
-
-        if let Ok(_) = Redirection::from_str(s){
+    pub fn is_redirection(s: &str) -> bool {
+        if Redirection::from_str(s).is_ok() {
             return true;
         }
 
         false
     }
 
-    pub fn redirect(
+    /// Gets the `src_or_dst` and mutable references to the Readers and Writers
+    /// Depending on the type of redirection and the type Reader/Writer of `src_or_dst`
+    /// it updates the mut references accordingly.
+    pub fn configure_redirection(
         &self,
-        filename: &str,
+        src_or_dst: &str,
         in_reader: &mut Option<Box<dyn Read>>,
         out_writer: &mut Option<Box<dyn Write>>,
         err_writer: &mut Option<Box<dyn Write>>,
-    ) -> () {
-        match self{
-            Redirection::ReadIn => {
+    ) -> Result<()> {
+        
+        //src_or_dst is in the filesystem
+        if let true = Path::new(src_or_dst).exists() {
+            //change redir
+            match self {
+                Redirection::ReadIn => {
+                    //Set contents of the reference as
+                    *in_reader = Some(Box::new(File::open(src_or_dst)?));
+                }
+                Redirection::WriteOut => {
+                    *out_writer = Some(Box::new(File::create(src_or_dst)?));
+                }
+                Redirection::AppendOut => {
+                    *out_writer = Some(Box::new(
+                        OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(src_or_dst)?,
+                    ));
+                }
+                Redirection::WriteErr => {
+                    *err_writer = Some(Box::new(File::create(src_or_dst)?));
+                }
+                Redirection::AppendErr => {
+                    *err_writer = Some(Box::new(
+                        OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(src_or_dst)?,
+                    ));
+                }
+                Redirection::WriteOutErr => {
+                    *out_writer = Some(Box::new(File::create(src_or_dst)?));
+                    *err_writer = Some(Box::new(File::create(src_or_dst)?));
+                }
+                Redirection::AppendOutErr => {
+                    *out_writer = Some(Box::new(
+                        OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(src_or_dst)?,
+                    ));
 
+                    *err_writer = Some(Box::new(
+                        OpenOptions::new()
+                            .append(true)
+                            .create(true)
+                            .open(src_or_dst)?,
+                    ));
+                }
             }
-            Redirection::WriteOut => {
-
-            }
-            Redirection::AppendOut => {
-
-            }
-            Redirection::WriteErr => {
-
-            }
-            Redirection::AppendErr => {
-
-            }
-            Redirection::WriteOutErr => {
-
-            }
-            Redirection::AppendOutErr => {
-
-            }
+            return Ok(());
+        } else {
+            "1.1.1.1:443".to_socket_addrs().unwrap();
+            //TODO 2021-08-28 Implement for network
+            //NOT SURE THIS WORKS FOR URLS
+            // match self {
+            //     Redirection::ReadIn => {}
+            //     Redirection::WriteOut => {}
+            //     Redirection::AppendOut => {}
+            //     Redirection::WriteErr => {}
+            //     Redirection::AppendErr => {}
+            //     Redirection::WriteOutErr => {}
+            //     Redirection::AppendOutErr => {}
+            // }
         }
+
+        Ok(())
     }
 }
-
-// Possibly
-// pub fn redirect(redirection: &str, filename: &str, &in, &out, &err) -> Result<()> {
-pub fn redirect(redirection: &str, filename: &str) -> Result<()> {
-    match redirection {
-        "<" => read_in(filename),
-        ">" | "1>" => write_out(filename),
-        ">>" => append_out(filename),
-        "2>" => write_err(filename),
-        "2>>" => append_err(filename),
-        "&>" | "2>&1" => write_out_err(filename),
-        "&>>" => append_out_err(filename),
-        _ => panic!("Invalid redirection"),
-    }
-}
-
-//Sets stdin of the command as a file given by the filename
-fn read_in(filename: &str) -> Result<()> {
-    let file = File::open(filename)?;
-    // command.stdin(file);
-    Ok(())
-}
-
-fn write_out(filename: &str) -> Result<()> {
-    let file = File::create(filename)?;
-    // command.stdout(file);
-    Ok(())
-}
-
-fn write_err(filename: &str) -> Result<()> {
-    let file = File::create(filename)?;
-    // command.stderr(file);
-    Ok(())
-}
-
-//Write output and error
-fn write_out_err(filename: &str) -> Result<()> {
-    let file = File::create(filename)?;
-    // command.stderr(file.try_clone().unwrap());
-    // command.stdout(file);
-    Ok(())
-}
-
-fn append_out(filename: &str) -> Result<()> {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(filename)?;
-    // command.stdout(file);
-    Ok(())
-}
-
-fn append_err(filename: &str) -> Result<()> {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(filename)?;
-    // command.stderr(file);
-    Ok(())
-}
-
-fn append_out_err(filename: &str) -> Result<()> {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(filename)?;
-    // command.stderr(file.try_clone().unwrap());
-    // command.stdout(file);
-    Ok(())
-}
-
 mod test {
     use crate::Step;
     use std::fs::{self, File};
