@@ -1,6 +1,10 @@
 # Shrimp
 Shellzao Rust Implementation
 
+## Test
+
+`cargo test -- --test-threads=1`
+
 
 ## Design Notes
 

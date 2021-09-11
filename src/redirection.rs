@@ -3,7 +3,6 @@ use std::{
     fs::{File, OpenOptions},
     io::{prelude::*, Result},
     net::{SocketAddr, ToSocketAddrs},
-    path::Path,
     str::FromStr,
 };
 
@@ -19,6 +18,7 @@ pub enum Redirection {
     AppendOutErr,
 }
 
+#[derive(Debug)]
 pub struct RedirectionParseError {}
 
 impl FromStr for Redirection {
@@ -27,11 +27,11 @@ impl FromStr for Redirection {
         match s {
             "<" => Ok(Redirection::ReadIn),
             ">" | "1>" => Ok(Redirection::WriteOut),
-            ">>" => Ok(Redirection::WriteOut),
-            "2>" => Ok(Redirection::WriteOut),
-            "2>>" => Ok(Redirection::WriteOut),
-            "&>" | "2>&1" => Ok(Redirection::WriteOut),
-            "&>>" => Ok(Redirection::WriteOut),
+            ">>" => Ok(Redirection::AppendOut),
+            "2>" => Ok(Redirection::WriteErr),
+            "2>>" => Ok(Redirection::AppendErr),
+            "&>" | "2>&1" => Ok(Redirection::WriteOutErr),
+            "&>>" => Ok(Redirection::AppendOutErr),
             _ => Err(RedirectionParseError {}),
         }
     }
@@ -39,11 +39,7 @@ impl FromStr for Redirection {
 
 impl Redirection {
     pub fn is_redirection(s: &str) -> bool {
-        if Redirection::from_str(s).is_ok() {
-            return true;
-        }
-
-        false
+        Redirection::from_str(s).is_ok()
     }
 
     /// Gets the `src_or_dst` and mutable references to the Readers and Writers
@@ -56,8 +52,22 @@ impl Redirection {
         out_writer: &mut Option<Box<dyn PipelineWriter>>,
         err_writer: &mut Option<Box<dyn PipelineWriter>>,
     ) -> Result<()> {
-        //src_or_dst is in the filesystem
-        if let true = Path::new(src_or_dst).exists() {
+        //src_or_dst is a Socket
+        if let Ok(_socket) = src_or_dst.to_socket_addrs() {
+            //TODO 2021-08-28 Implement for network
+            //NOT SURE THIS WORKS FOR URLS
+            // match self {
+            //     Redirection::ReadIn => {}
+            //     Redirection::WriteOut => {}
+            //     Redirection::AppendOut => {}
+            //     Redirection::WriteErr => {}
+            //     Redirection::AppendErr => {}
+            //     Redirection::WriteOutErr => {}
+            //     Redirection::AppendOutErr => {}
+            // }
+        }
+        //Default to a path in the filesystem
+        else {
             //change redir
             match self {
                 Redirection::ReadIn => {
@@ -107,34 +117,12 @@ impl Redirection {
                 }
             }
             return Ok(());
-        } else {
-            "1.1.1.1:443".to_socket_addrs().unwrap();
-            //TODO 2021-08-28 Implement for network
-            //NOT SURE THIS WORKS FOR URLS
-            // match self {
-            //     Redirection::ReadIn => {}
-            //     Redirection::WriteOut => {}
-            //     Redirection::AppendOut => {}
-            //     Redirection::WriteErr => {}
-            //     Redirection::AppendErr => {}
-            //     Redirection::WriteOutErr => {}
-            //     Redirection::AppendOutErr => {}
-            // }
         }
 
         Ok(())
     }
 }
 mod test {
-    // use crate::Step;
-    // use std::fs::{self, File};
-    // use std::io::prelude::*;
-
-    // #[test]
-    // fn test_parse_simple_cmd_non_existing_input() {
-    //     let c = Step::parse_command("wc -c < tests/inputs > tests/output");
-    //     assert!(c.is_err())
-    // }
 
     // #[test]
     // fn test_simple_cmd_create_new_output() {

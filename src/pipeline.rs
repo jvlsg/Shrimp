@@ -247,7 +247,7 @@ mod test {
         }
 
         #[test]
-        fn simple_pipeline_parsing() {
+        fn parse_simple_pipeline() {
             let p_str = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
             dbg!(&p_str);
 
@@ -266,7 +266,7 @@ mod test {
         }
 
         #[test]
-        fn pipeline_parsing_new_output() {
+        fn parse_pipeline_new_output() {
             let p_str =
                 Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new").unwrap();
             let p = Pipeline {
@@ -280,29 +280,38 @@ mod test {
                 out_writer: Box::new(File::create("tests/output_new").unwrap()),
                 err_writer: Box::new(std::io::stderr()),
             };
-            
+
             assert_eq!(p.pipes, p_str.pipes);
 
-            let bla = format!("{:?}",p.out_writer);
+            let bla = format!("{:?}", p.out_writer);
             let bla: Vec<&str> = bla.split(",").collect();
 
-            let lab = format!("{:?}",p_str.out_writer);
+            let lab = format!("{:?}", p_str.out_writer);
             let lab: Vec<&str> = lab.split(",").collect();
 
-            assert_eq!(bla[1..],lab[1..]);
+            assert_eq!(bla[1..], lab[1..]);
         }
 
         #[test]
-        fn empty_pipeline_parsing() {
+        fn parse_empty_pipeline() {
             let p = Pipeline::new("");
             assert_eq!(p.is_err(), true);
             dbg!(&p);
         }
 
         #[test]
+        fn parse_non_existing_input() {
+            let c = Pipeline::new("wc -c < tests/inputs > tests/output");
+            assert!(c.is_err());
+            assert_eq!(c.unwrap_err().kind(), ErrorKind::NotFound);
+        }
+
+        #[test]
         fn simple_pipeline_read_existing_write_out_existing() {
-            let p_str = Pipeline::new("wc -c < tests/lorem > tests/output").unwrap();
-            dbg!(p_str.run());
+            Pipeline::new("wc -c < tests/lorem > tests/output")
+                .unwrap()
+                .run()
+                .unwrap();
 
             let mut buff = String::new();
             let mut file = File::open("tests/output").unwrap();
@@ -329,24 +338,34 @@ mod test {
 
         #[test]
         fn three_step_pipeline_create_new_output_file() {
-            {
-                //Stuff still bugging out here
-                let p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
-                    .unwrap();
-                
-                println!("a");
-                dbg!(&p.out_writer);
+            let p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
+                .unwrap()
+                .run()
+                .unwrap();
 
-                let p_res = p                    
-                    .run()
-                    .unwrap();
-                // dbg!(&p_res);
-                // let mut buff = String::new();
-                // let mut file = File::open("tests/output_new").unwrap();
-                // file.read_to_string(&mut buff).unwrap();
-                // assert_eq!("4", buff.trim());
-            }
-            // fs::remove_file("tests/output_new").unwrap();
+            let mut buff = String::new();
+            let mut file = File::open("tests/output_new").unwrap();
+            file.read_to_string(&mut buff).unwrap();
+            assert_eq!("4", buff.trim());
+            fs::remove_file("tests/output_new").unwrap();
+        }
+
+        #[test]
+        fn three_step_pipeline_append_existing_output_file() {
+            Pipeline::new("echo test > tests/output")
+                .unwrap()
+                .run()
+                .unwrap();
+
+            let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c >> tests/output")
+                .unwrap()
+                .run()
+                .unwrap();
+
+            let mut buff = String::new();
+            let mut file = File::open("tests/output").unwrap();
+            file.read_to_string(&mut buff).unwrap();
+            assert_eq!("test\n4", buff.trim());
         }
     }
 
