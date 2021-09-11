@@ -7,6 +7,8 @@ use std::{
     str::FromStr,
 };
 
+use crate::pipeline::{PipelineReader, PipelineWriter};
+
 pub enum Redirection {
     ReadIn,
     WriteOut,
@@ -50,9 +52,9 @@ impl Redirection {
     pub fn configure_redirection(
         &self,
         src_or_dst: &str,
-        in_reader: &mut Option<Box<dyn Read>>,
-        out_writer: &mut Option<Box<dyn Write>>,
-        err_writer: &mut Option<Box<dyn Write>>,
+        in_reader: &mut Option<Box<dyn PipelineReader>>,
+        out_writer: &mut Option<Box<dyn PipelineWriter>>,
+        err_writer: &mut Option<Box<dyn PipelineWriter>>,
     ) -> Result<()> {
         //src_or_dst is in the filesystem
         if let true = Path::new(src_or_dst).exists() {
@@ -127,32 +129,6 @@ mod test {
     // use crate::Step;
     // use std::fs::{self, File};
     // use std::io::prelude::*;
-
-    // #[test]
-    // fn test_parse_simple_cmd() {
-    //     let c = Step::parse_command("ls");
-    //     assert_eq!(c.is_ok(), true);
-    // }
-
-    // #[test]
-    // fn test_parse_simple_cmd_io_redirections() {
-    //     let c = Step::parse_command("wc -c < tests/lorem > tests/output");
-    //     assert_eq!(c.is_ok(), true);
-
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/output").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert_eq!("447", buff.trim());
-    // }
-
-    // #[test]
-    // fn test_parse_simple_cmd_empty_output() {
-    //     let c = Step::parse_command("wc -c < ");
-    //     dbg!(&c);
-    //     assert!(c.is_err())
-    // }
 
     // #[test]
     // fn test_parse_simple_cmd_non_existing_input() {

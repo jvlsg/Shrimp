@@ -1,7 +1,8 @@
 use crate::{redirection, Step, StepOutput};
 use std::{
     fmt,
-    io::{prelude::*, Error, ErrorKind, Result},
+    fs::File,
+    io::{prelude::*, Error, ErrorKind, Result, Stderr, Stdin, Stdout},
     str::FromStr,
 };
 
@@ -11,14 +12,25 @@ pub enum Pipe {
     Err,
 }
 
+///These combine additional traits, such as Debug, to the Readers used by the Pipeline
+pub trait PipelineReader: std::io::Read + std::fmt::Debug {}
+impl PipelineReader for File {}
+impl PipelineReader for Stdin {}
+
+///These combine additional traits, such as Debug, to the Writers used by the Pipeline
+pub trait PipelineWriter: std::io::Write + std::fmt::Debug {}
+impl PipelineWriter for File {}
+impl PipelineWriter for Stdout {}
+impl PipelineWriter for Stderr {}
+
 ///A pipeline is composed by Steps (commands or builtins), and Pipes that connect the output from one Stpe to the next
 /// TODO 2021-07-09 Change trait objects to Generics?
 pub struct Pipeline {
     steps: Vec<Step>,
     pipes: Vec<Pipe>,
-    in_reader: Option<Box<dyn Read>>,
-    out_writer: Box<dyn Write>,
-    err_writer: Box<dyn Write>,
+    in_reader: Option<Box<dyn PipelineReader>>,
+    out_writer: Box<dyn PipelineWriter>,
+    err_writer: Box<dyn PipelineWriter>,
 }
 
 impl fmt::Debug for Pipeline {
@@ -38,9 +50,9 @@ impl Pipeline {
         let mut steps: Vec<Step> = vec![];
         let mut pipes: Vec<Pipe> = vec![];
 
-        let mut in_reader: Option<Box<dyn Read>> = None;
-        let mut out_writer: Option<Box<dyn Write>> = None;
-        let mut err_writer: Option<Box<dyn Write>> = None;
+        let mut in_reader: Option<Box<dyn PipelineReader>> = None;
+        let mut out_writer: Option<Box<dyn PipelineWriter>> = None;
+        let mut err_writer: Option<Box<dyn PipelineWriter>> = None;
 
         let mut words = pipeline_string.split_whitespace();
 
@@ -164,12 +176,11 @@ impl Pipeline {
 }
 
 //******************* */
-
 #[cfg(test)]
 mod test {
     mod pipelines {
         use super::super::*;
-        use std::fs::File;
+        use std::fs::{self, File};
 
         #[test]
         fn simple_pipeline() {
@@ -255,6 +266,33 @@ mod test {
         }
 
         #[test]
+        fn pipeline_parsing_new_output() {
+            let p_str =
+                Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new").unwrap();
+            let p = Pipeline {
+                steps: vec![
+                    Step::new("echo -n abcde").unwrap(),
+                    Step::new("tr -d a").unwrap(),
+                    Step::new("wc -c").unwrap(),
+                ],
+                pipes: vec![Pipe::Std, Pipe::Std],
+                in_reader: None,
+                out_writer: Box::new(File::create("tests/output_new").unwrap()),
+                err_writer: Box::new(std::io::stderr()),
+            };
+            
+            assert_eq!(p.pipes, p_str.pipes);
+
+            let bla = format!("{:?}",p.out_writer);
+            let bla: Vec<&str> = bla.split(",").collect();
+
+            let lab = format!("{:?}",p_str.out_writer);
+            let lab: Vec<&str> = lab.split(",").collect();
+
+            assert_eq!(bla[1..],lab[1..]);
+        }
+
+        #[test]
         fn empty_pipeline_parsing() {
             let p = Pipeline::new("");
             assert_eq!(p.is_err(), true);
@@ -262,7 +300,7 @@ mod test {
         }
 
         #[test]
-        fn simple_pipeline_redir_out() {
+        fn simple_pipeline_read_existing_write_out_existing() {
             let p_str = Pipeline::new("wc -c < tests/lorem > tests/output").unwrap();
             dbg!(p_str.run());
 
@@ -270,6 +308,45 @@ mod test {
             let mut file = File::open("tests/output").unwrap();
             file.read_to_string(&mut buff).unwrap();
             assert_eq!("447", buff.trim());
+        }
+
+        #[test]
+        fn simple_pipeline_empty_out_redir() {
+            let p = Pipeline::new("wc -c < ");
+            assert_eq!(p.is_err(), true);
+            assert_eq!(p.unwrap_err().kind(), ErrorKind::InvalidInput);
+        }
+
+        #[test]
+        fn three_step_pipeline() {
+            let p_res = Pipeline::new("echo -n abcde | tr -d a | wc -c")
+                .unwrap()
+                .run()
+                .unwrap();
+            dbg!(&p_res);
+            assert_eq!(String::from_utf8(p_res.stdout).unwrap().trim(), "4")
+        }
+
+        #[test]
+        fn three_step_pipeline_create_new_output_file() {
+            {
+                //Stuff still bugging out here
+                let p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
+                    .unwrap();
+                
+                println!("a");
+                dbg!(&p.out_writer);
+
+                let p_res = p                    
+                    .run()
+                    .unwrap();
+                // dbg!(&p_res);
+                // let mut buff = String::new();
+                // let mut file = File::open("tests/output_new").unwrap();
+                // file.read_to_string(&mut buff).unwrap();
+                // assert_eq!("4", buff.trim());
+            }
+            // fs::remove_file("tests/output_new").unwrap();
         }
     }
 
