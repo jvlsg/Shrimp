@@ -175,251 +175,221 @@ impl Pipeline {
     }
 }
 
-//******************* */
+//********************/
 #[cfg(test)]
 mod test {
-    mod pipelines {
-        use super::super::*;
-        use std::fs::{self, File};
+    use super::*;
+    use std::fs::{self, File};
 
-        #[test]
-        fn simple_pipeline() {
-            let p = Pipeline {
-                steps: vec![
-                    Step::new("echo -n abcde").unwrap(),
-                    Step::new("tr -d a").unwrap(),
-                    Step::new("wc -c").unwrap(),
-                ],
-                pipes: vec![Pipe::Std, Pipe::Std],
-                in_reader: None,
-                out_writer: Box::new(std::io::stdout()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-
-            let r = p.run().unwrap();
-            assert_eq!(r.success, true);
-        }
-
-        #[test]
-        fn simple_pipeline_redir_in() {
-            let p = Pipeline {
-                steps: vec![Step::new("wc -c").unwrap()],
-                pipes: vec![],
-                in_reader: Some(Box::new(File::open("tests/lorem").unwrap())),
-                out_writer: Box::new(std::io::stdout()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-
-            let r = p.run().unwrap();
-            assert_eq!(r.success, true);
-        }
-
-        #[test]
-        fn empty_pipeline() {
-            let p = Pipeline {
-                steps: vec![],
-                pipes: vec![],
-                in_reader: None,
-                out_writer: Box::new(std::io::stdout()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-
-            let r = p.run();
-            assert_eq!(r.is_err(), true);
-        }
-
-        #[test]
-        fn simple_pipeline_err() {
-            let p = Pipeline {
-                steps: vec![
-                    Step::new("echo -n abcde").unwrap(),
-                    Step::new("tr -3 a").unwrap(),
-                    Step::new("wc -c").unwrap(),
-                ],
-                pipes: vec![Pipe::Err, Pipe::Err],
-                in_reader: None,
-                out_writer: Box::new(std::io::stdout()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-
-            let r = p.run().unwrap();
-            assert_eq!(r.success, true);
-        }
-
-        #[test]
-        fn parse_simple_pipeline() {
-            let p_str = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
-            dbg!(&p_str);
-
-            let p = Pipeline {
-                steps: vec![
-                    Step::new("echo \"asd\"").unwrap(),
-                    Step::new("grep a").unwrap(),
-                    Step::new("wc -c").unwrap(),
-                ],
-                pipes: vec![Pipe::Err, Pipe::Std],
-                in_reader: None,
-                out_writer: Box::new(std::io::stdout()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-            assert_eq!(p.pipes, p_str.pipes);
-        }
-
-        #[test]
-        fn parse_pipeline_new_output() {
-            let p_str =
-                Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new").unwrap();
-            let p = Pipeline {
-                steps: vec![
-                    Step::new("echo -n abcde").unwrap(),
-                    Step::new("tr -d a").unwrap(),
-                    Step::new("wc -c").unwrap(),
-                ],
-                pipes: vec![Pipe::Std, Pipe::Std],
-                in_reader: None,
-                out_writer: Box::new(File::create("tests/output_new").unwrap()),
-                err_writer: Box::new(std::io::stderr()),
-            };
-
-            assert_eq!(p.pipes, p_str.pipes);
-
-            let bla = format!("{:?}", p.out_writer);
-            let bla: Vec<&str> = bla.split(",").collect();
-
-            let lab = format!("{:?}", p_str.out_writer);
-            let lab: Vec<&str> = lab.split(",").collect();
-
-            assert_eq!(bla[1..], lab[1..]);
-        }
-
-        #[test]
-        fn parse_empty_pipeline() {
-            let p = Pipeline::new("");
-            assert_eq!(p.is_err(), true);
-            dbg!(&p);
-        }
-
-        #[test]
-        fn parse_non_existing_input() {
-            let c = Pipeline::new("wc -c < tests/inputs > tests/output");
-            assert!(c.is_err());
-            assert_eq!(c.unwrap_err().kind(), ErrorKind::NotFound);
-        }
-
-        #[test]
-        fn simple_pipeline_read_existing_write_out_existing() {
-            Pipeline::new("wc -c < tests/lorem > tests/output")
-                .unwrap()
-                .run()
-                .unwrap();
-
-            let mut buff = String::new();
-            let mut file = File::open("tests/output").unwrap();
-            file.read_to_string(&mut buff).unwrap();
-            assert_eq!("447", buff.trim());
-        }
-
-        #[test]
-        fn simple_pipeline_empty_out_redir() {
-            let p = Pipeline::new("wc -c < ");
-            assert_eq!(p.is_err(), true);
-            assert_eq!(p.unwrap_err().kind(), ErrorKind::InvalidInput);
-        }
-
-        #[test]
-        fn three_step_pipeline() {
-            let p_res = Pipeline::new("echo -n abcde | tr -d a | wc -c")
-                .unwrap()
-                .run()
-                .unwrap();
-            dbg!(&p_res);
-            assert_eq!(String::from_utf8(p_res.stdout).unwrap().trim(), "4")
-        }
-
-        #[test]
-        fn three_step_pipeline_create_new_output_file() {
-            let p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
-                .unwrap()
-                .run()
-                .unwrap();
-
-            let mut buff = String::new();
-            let mut file = File::open("tests/output_new").unwrap();
-            file.read_to_string(&mut buff).unwrap();
-            assert_eq!("4", buff.trim());
-            fs::remove_file("tests/output_new").unwrap();
-        }
-
-        #[test]
-        fn three_step_pipeline_append_existing_output_file() {
-            Pipeline::new("echo test > tests/output")
-                .unwrap()
-                .run()
-                .unwrap();
-
-            let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c >> tests/output")
-                .unwrap()
-                .run()
-                .unwrap();
-
-            let mut buff = String::new();
-            let mut file = File::open("tests/output").unwrap();
-            file.read_to_string(&mut buff).unwrap();
-            assert_eq!("test\n4", buff.trim());
-        }
+    #[test]
+    fn simple_pipeline() {
+        let p = Pipeline {
+            steps: vec![
+                Step::new("echo -n abcde").unwrap(),
+                Step::new("tr -d a").unwrap(),
+                Step::new("wc -c").unwrap(),
+            ],
+            pipes: vec![Pipe::Std, Pipe::Std],
+            in_reader: None,
+            out_writer: Box::new(std::io::stdout()),
+            err_writer: Box::new(std::io::stderr()),
+        };
+        let r = p.run().unwrap();
+        assert_eq!(r.success, true);
     }
 
     #[test]
-    fn bytes_test() {
-        use std::io::prelude::*;
-        use std::process::{Command, Stdio};
-        use std::str::FromStr;
+    fn simple_pipeline_redir_in() {
+        let p = Pipeline {
+            steps: vec![Step::new("wc -c").unwrap()],
+            pipes: vec![],
+            in_reader: Some(Box::new(File::open("tests/lorem").unwrap())),
+            out_writer: Box::new(std::io::stdout()),
+            err_writer: Box::new(std::io::stderr()),
+        };
+        let r = p.run().unwrap();
+        assert_eq!(r.success, true);
+    }
 
-        static PANGRAM: &'static str = "the quick brown fox jumped over the lazy dog\n";
-
-        // Spawn the `wc` command
-        let mut process = match Command::new("wc")
-            .arg("-c")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-        {
-            Err(why) => panic!("couldn't spawn wc: {}", why),
-            Ok(process) => process,
+    #[test]
+    fn empty_pipeline() {
+        let p = Pipeline {
+            steps: vec![],
+            pipes: vec![],
+            in_reader: None,
+            out_writer: Box::new(std::io::stdout()),
+            err_writer: Box::new(std::io::stderr()),
         };
 
-        // Write a string to the `stdin` of `wc`.
-        //
-        // `stdin` has type `Option<ChildStdin>`, but since we know this instance
-        // must have one, we can directly `unwrap` it.
-        match process
-            .stdin
-            .as_ref()
+        let r = p.run();
+        assert_eq!(r.is_err(), true);
+    }
+
+    #[test]
+    fn simple_pipeline_err() {
+        let p = Pipeline {
+            steps: vec![
+                Step::new("echo -n abcde").unwrap(),
+                Step::new("tr -3 a").unwrap(),
+                Step::new("wc -c").unwrap(),
+            ],
+            pipes: vec![Pipe::Err, Pipe::Err],
+            in_reader: None,
+            out_writer: Box::new(std::io::stdout()),
+            err_writer: Box::new(std::io::stderr()),
+        };
+
+        let r = p.run().unwrap();
+        assert_eq!(r.success, true);
+    }
+
+    #[test]
+    fn parse_simple_pipeline() {
+        let p_str = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+        dbg!(&p_str);
+
+        let p = Pipeline {
+            steps: vec![
+                Step::new("echo \"asd\"").unwrap(),
+                Step::new("grep a").unwrap(),
+                Step::new("wc -c").unwrap(),
+            ],
+            pipes: vec![Pipe::Err, Pipe::Std],
+            in_reader: None,
+            out_writer: Box::new(std::io::stdout()),
+            err_writer: Box::new(std::io::stderr()),
+        };
+        assert_eq!(p.pipes, p_str.pipes);
+    }
+
+    #[test]
+    fn parse_pipeline_new_output() {
+        let p_str = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new").unwrap();
+        let p = Pipeline {
+            steps: vec![
+                Step::new("echo -n abcde").unwrap(),
+                Step::new("tr -d a").unwrap(),
+                Step::new("wc -c").unwrap(),
+            ],
+            pipes: vec![Pipe::Std, Pipe::Std],
+            in_reader: None,
+            out_writer: Box::new(File::create("tests/output_new").unwrap()),
+            err_writer: Box::new(std::io::stderr()),
+        };
+
+        assert_eq!(p.pipes, p_str.pipes);
+
+        let bla = format!("{:?}", p.out_writer);
+        let bla: Vec<&str> = bla.split(",").collect();
+
+        let lab = format!("{:?}", p_str.out_writer);
+        let lab: Vec<&str> = lab.split(",").collect();
+
+        assert_eq!(bla[1..], lab[1..]);
+    }
+
+    #[test]
+    fn parse_empty_pipeline() {
+        let p = Pipeline::new("");
+        assert_eq!(p.is_err(), true);
+        dbg!(&p);
+    }
+
+    #[test]
+    fn parse_non_existing_input() {
+        let c = Pipeline::new("wc -c < tests/inputs > tests/output");
+        assert!(c.is_err());
+        assert_eq!(c.unwrap_err().kind(), ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn simple_pipeline_read_existing_write_output_existing_file() {
+        Pipeline::new("wc -c < tests/lorem > tests/output")
             .unwrap()
-            .write_all(PANGRAM.as_bytes())
-        {
-            Err(why) => panic!("couldn't write to wc stdin: {}", why),
-            Ok(_) => println!("sent pangram to wc"),
-        }
-        process.wait().unwrap();
-        // Because `stdin` does not live after the above calls, it is `drop`ed,
-        // and the pipe is closed.
-        //
-        // This is very important, otherwise `wc` wouldn't start processing the
-        // input we just sent.
+            .run()
+            .unwrap();
 
-        // The `stdout` field also has type `Option<ChildStdout>` so must be unwrapped.
-        let mut s = String::new();
-        match process.stdout.unwrap().read_to_string(&mut s) {
-            Err(why) => panic!("couldn't read wc stdout: {}", why),
-            Ok(_) => print!("wc responded with:\n{}", &s),
-        }
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("447", buff.trim());
+    }
 
-        // ---
-        // let out = process.wait_with_output().unwrap();
-        // let mut s = String::from_utf8_lossy(&out.stdout);
+    #[test]
+    fn simple_pipeline_overwrite_output_file() {
+        Pipeline::new("wc -c < tests/lorem > tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+        Pipeline::new("wc -w < tests/lorem > tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
 
-        let x = i32::from_str(&s.trim()).unwrap();
-        println!("{}", x + 1);
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("69", buff.trim());
+    }
+
+    #[test]
+    fn simple_pipeline_empty_out_redir() {
+        let p = Pipeline::new("wc -c < ");
+        assert_eq!(p.is_err(), true);
+        assert_eq!(p.unwrap_err().kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn three_step_pipeline() {
+        let p_res = Pipeline::new("echo -n abcde | tr -d a | wc -c")
+            .unwrap()
+            .run()
+            .unwrap();
+        dbg!(&p_res);
+        assert_eq!(String::from_utf8(p_res.stdout).unwrap().trim(), "4")
+    }
+
+    #[test]
+    fn pipeline_write_output_create_new_file() {
+        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output_new").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("4", buff.trim());
+        fs::remove_file("tests/output_new").unwrap();
+    }
+
+    #[test]
+    fn pipeline_append_output_existing_file() {
+        Pipeline::new("echo test > tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c >> tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("test\n4", buff.trim());
+    }
+
+    #[test]
+    fn pipeline_write_error_existing_file() {
+        let res = Pipeline::new("ping a 2> tests/err").unwrap().run().unwrap();
+        assert_eq!(res.success, false);
+        assert_ne!(res.code, Some(0));
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/err").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("ping: a: Name or service not known", buff.trim());
     }
 }

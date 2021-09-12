@@ -8,6 +8,7 @@ use std::{
 
 use crate::pipeline::{PipelineReader, PipelineWriter};
 
+#[derive(Debug, std::cmp::PartialEq)]
 pub enum Redirection {
     ReadIn,
     WriteOut,
@@ -18,7 +19,7 @@ pub enum Redirection {
     AppendOutErr,
 }
 
-#[derive(Debug)]
+#[derive(Debug, std::cmp::PartialEq)]
 pub struct RedirectionParseError {}
 
 impl FromStr for Redirection {
@@ -123,72 +124,18 @@ impl Redirection {
     }
 }
 mod test {
-
-    // #[test]
-    // fn test_simple_cmd_create_new_output() {
-    //     {
-    //         let c = Step::parse_command("wc -c < tests/lorem > tests/output_new");
-    //         assert_eq!(c.is_ok(), true);
-
-    //         c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //         let mut buff = String::new();
-    //         let mut file = File::open("tests/output_new").unwrap();
-    //         file.read_to_string(&mut buff).unwrap();
-    //         assert_eq!("447", buff.trim());
-    //     }
-    //     fs::remove_file("tests/output_new").unwrap();
-    // }
-
-    // #[test]
-    // fn test_simple_cmd_output_err() {
-    //     let c = Step::parse_command("ping a 2> tests/err");
-    //     assert_eq!(c.is_ok(), true);
-
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/err").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert_eq!("ping: a: Name or service not known", buff.trim());
-    // }
-
-    // #[test]
-    // fn test_simple_cmd_overwrite_output() {
-    //     let c = Step::parse_command("wc -c < tests/lorem > tests/output");
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let c = Step::parse_command("wc -w < tests/lorem > tests/output");
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/output").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert_eq!("69", buff.trim());
-    // }
-
-    // #[test]
-    // fn test_simple_cmd_append_output() {
-    //     let c = Step::parse_command("wc -c < tests/lorem > tests/output");
-    //     assert_eq!(c.is_ok(), true);
-
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/output").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert_eq!("447", buff.trim());
-
-    //     let c = Step::parse_command("wc -w < tests/lorem >> tests/output");
-    //     assert_eq!(c.is_ok(), true);
-
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/output").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert_eq!("447\n69", buff.trim());
-    // }
+    use super::*;
+    #[test]
+    fn parse_redirection() {
+        assert_eq!(Redirection::from_str("<"), Ok(Redirection::ReadIn));
+        assert_eq!(Redirection::from_str(">"), Ok(Redirection::WriteOut));
+        assert_eq!(Redirection::from_str(">>"), Ok(Redirection::AppendOut));
+        assert_eq!(Redirection::from_str("2>"), Ok(Redirection::WriteErr));
+        assert_eq!(Redirection::from_str("2>>"), Ok(Redirection::AppendErr));
+        assert_eq!(Redirection::from_str("&>"), Ok(Redirection::WriteOutErr));
+        assert_eq!(Redirection::from_str("2>&1"), Ok(Redirection::WriteOutErr));
+        assert_eq!(Redirection::from_str("&>>"), Ok(Redirection::AppendOutErr));
+    }
 
     // #[test]
     // fn test_simple_cmd_redir_stderr() {

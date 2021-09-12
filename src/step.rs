@@ -23,7 +23,7 @@ pub enum Step {
     Builtin(builtins::Builtin),
 }
 
-///Roughly analogous to process::Output mixed with process::ExitStatus.
+/// Roughly analogous to process::Output mixed with process::ExitStatus.
 /// Since process::ExitStatus is sealed, we can't instantiate it directly. With our own struct, Builtins can use it as well
 #[derive(Debug)]
 pub struct StepOutput {
