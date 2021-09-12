@@ -1,9 +1,6 @@
-use std::{
-    io::{self, Write},
-    process::ExitStatus,
-};
+use std::io::{self, Write};
 
-use shrimp::{Pipeline, Step};
+use shrimp::Pipeline;
 
 fn main() {
     loop {
@@ -30,7 +27,7 @@ fn main() {
             //     }
             // },
             _ => {
-                let mut p = Pipeline::new(input).unwrap();
+                let p = Pipeline::new(input).unwrap();
                 p.run().unwrap();
                 // dbg!(input);
                 // match Step::parse_command(input) {
