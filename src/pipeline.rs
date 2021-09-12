@@ -1,4 +1,4 @@
-use crate::{redirection, Step, StepOutput};
+use crate::{redirection::Redirection, Step, StepOutput};
 use std::{
     fmt,
     fs::File,
@@ -18,19 +18,20 @@ impl PipelineReader for File {}
 impl PipelineReader for Stdin {}
 
 ///These combine additional traits, such as Debug, to the Writers used by the Pipeline
+/// TODO: 2021-09-12 Change these two Enums?
 pub trait PipelineWriter: std::io::Write + std::fmt::Debug {}
 impl PipelineWriter for File {}
 impl PipelineWriter for Stdout {}
 impl PipelineWriter for Stderr {}
 
-///A pipeline is composed by Steps (commands or builtins), and Pipes that connect the output from one Stpe to the next
-/// TODO 2021-07-09 Change trait objects to Generics?
+///A pipeline is composed by Steps (commands or builtins), and Pipes that connect the output from one Step to the next
 pub struct Pipeline {
     steps: Vec<Step>,
     pipes: Vec<Pipe>,
     in_reader: Option<Box<dyn PipelineReader>>,
     out_writer: Box<dyn PipelineWriter>,
     err_writer: Box<dyn PipelineWriter>,
+    redirection_write_type: Option<Redirection>, //Used to change write logic
 }
 
 impl fmt::Debug for Pipeline {
@@ -54,11 +55,13 @@ impl Pipeline {
         let mut out_writer: Option<Box<dyn PipelineWriter>> = None;
         let mut err_writer: Option<Box<dyn PipelineWriter>> = None;
 
+        let mut redirection_write_type = None;
+
         let mut words = pipeline_string.split_whitespace();
 
         //Find redirection
         while let Some(w) = words.next() {
-            if let Ok(redir) = redirection::Redirection::from_str(w) {
+            if let Ok(redir) = Redirection::from_str(w) {
                 //Pipeline only needs the Type of redirection (so it knows which variable to set) and the corresponding
                 //reader / writer
 
@@ -75,6 +78,10 @@ impl Pipeline {
                     &mut out_writer,
                     &mut err_writer,
                 )?;
+
+                if redir != Redirection::ReadIn {
+                    redirection_write_type = Some(redir);
+                }
             }
         }
 
@@ -109,13 +116,13 @@ impl Pipeline {
             }
         }
 
-        //     dbg!(&steps);
         Ok(Pipeline {
             pipes,
             steps,
             in_reader,
             out_writer: out_writer.unwrap_or(Box::new(std::io::stdout())),
             err_writer: err_writer.unwrap_or(Box::new(std::io::stderr())),
+            redirection_write_type,
         })
     }
 
@@ -168,8 +175,18 @@ impl Pipeline {
         dbg!(&last_out.code);
         dbg!(&last_out.success);
 
-        self.out_writer.write_all(&last_out.stdout)?;
-        self.err_writer.write_all(&last_out.stderr)?;
+        //Appends Output INTO Err, write both to the same destination
+        //If we simply wrote each to it's destination, in case of `&>`
+        //Output would overrwrite Err.
+        if self.redirection_write_type == Some(Redirection::WriteOutErr)
+            || self.redirection_write_type == Some(Redirection::AppendOutErr)
+        {
+            last_out.stderr.append(&mut last_out.stdout);
+            self.out_writer.write_all(&last_out.stderr)?;
+        } else {
+            self.err_writer.write_all(&last_out.stderr)?;
+            self.out_writer.write_all(&last_out.stdout)?;
+        }
 
         Ok(last_out)
     }
@@ -193,6 +210,7 @@ mod test {
             in_reader: None,
             out_writer: Box::new(std::io::stdout()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
         let r = p.run().unwrap();
         assert_eq!(r.success, true);
@@ -206,6 +224,7 @@ mod test {
             in_reader: Some(Box::new(File::open("tests/lorem").unwrap())),
             out_writer: Box::new(std::io::stdout()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
         let r = p.run().unwrap();
         assert_eq!(r.success, true);
@@ -219,6 +238,7 @@ mod test {
             in_reader: None,
             out_writer: Box::new(std::io::stdout()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
 
         let r = p.run();
@@ -237,6 +257,7 @@ mod test {
             in_reader: None,
             out_writer: Box::new(std::io::stdout()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
 
         let r = p.run().unwrap();
@@ -258,6 +279,7 @@ mod test {
             in_reader: None,
             out_writer: Box::new(std::io::stdout()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
         assert_eq!(p.pipes, p_str.pipes);
     }
@@ -275,6 +297,7 @@ mod test {
             in_reader: None,
             out_writer: Box::new(File::create("tests/output_new").unwrap()),
             err_writer: Box::new(std::io::stderr()),
+            redirection_write_type: None,
         };
 
         assert_eq!(p.pipes, p_str.pipes);
@@ -382,6 +405,23 @@ mod test {
     }
 
     #[test]
+    fn pipeline_append_err_existing_file() {
+        Pipeline::new("echo test > tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -x 2>> tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!("test\nwc: invalid option -- 'x'\nTry 'wc --help' for more information.", buff.trim());
+    }
+    #[test]
     fn pipeline_write_error_existing_file() {
         let res = Pipeline::new("ping a 2> tests/err").unwrap().run().unwrap();
         assert_eq!(res.success, false);
@@ -391,5 +431,64 @@ mod test {
         let mut file = File::open("tests/err").unwrap();
         file.read_to_string(&mut buff).unwrap();
         assert_eq!("ping: a: Name or service not known", buff.trim());
+    }
+
+    #[test]
+    fn pipeline_write_output_and_error_existing_file() {
+        let res = Pipeline::new("ls tests/err erro &> tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+        assert_eq!(res.success, false);
+        assert_ne!(res.code, Some(0));
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!(
+            "ls: cannot access 'erro': No such file or directory\ntests/err",
+            buff.trim()
+        );
+    }
+
+    #[test]
+    fn pipeline_write_output_and_error_existing_file_alt() {
+        let res = Pipeline::new("ls tests/err erro 2>&1 tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+        assert_eq!(res.success, false);
+        assert_ne!(res.code, Some(0));
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!(
+            "ls: cannot access 'erro': No such file or directory\ntests/err",
+            buff.trim()
+        );
+    }
+
+    #[test]
+    fn pipeline_append_output_and_error_existing_file() {
+        Pipeline::new("echo test > tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+
+        let res = Pipeline::new("ls tests/err erro &>> tests/output")
+            .unwrap()
+            .run()
+            .unwrap();
+        assert_eq!(res.success, false);
+        assert_ne!(res.code, Some(0));
+
+        let mut buff = String::new();
+        let mut file = File::open("tests/output").unwrap();
+        file.read_to_string(&mut buff).unwrap();
+        assert_eq!(
+            "test\nls: cannot access 'erro': No such file or directory\ntests/err",
+            buff.trim()
+        );
     }
 }

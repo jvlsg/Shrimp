@@ -97,19 +97,13 @@ impl Redirection {
                             .open(src_or_dst)?,
                     ));
                 }
+                //These last two only have out_writer set, as it will be the sole destination
+                //for both output and err
                 Redirection::WriteOutErr => {
                     *out_writer = Some(Box::new(File::create(src_or_dst)?));
-                    *err_writer = Some(Box::new(File::create(src_or_dst)?));
                 }
                 Redirection::AppendOutErr => {
                     *out_writer = Some(Box::new(
-                        OpenOptions::new()
-                            .append(true)
-                            .create(true)
-                            .open(src_or_dst)?,
-                    ));
-
-                    *err_writer = Some(Box::new(
                         OpenOptions::new()
                             .append(true)
                             .create(true)
@@ -137,16 +131,4 @@ mod test {
         assert_eq!(Redirection::from_str("&>>"), Ok(Redirection::AppendOutErr));
     }
 
-    // #[test]
-    // fn test_simple_cmd_redir_stderr() {
-    //     let c = Step::parse_command("wc -x 2> tests/output");
-    //     assert_eq!(c.is_ok(), true);
-
-    //     c.unwrap().spawn().unwrap().wait().unwrap();
-
-    //     let mut buff = String::new();
-    //     let mut file = File::open("tests/output").unwrap();
-    //     file.read_to_string(&mut buff).unwrap();
-    //     assert!(buff.trim().starts_with("wc: invalid option -- 'x'"));
-    // }
 }
