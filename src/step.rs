@@ -3,24 +3,14 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use crate::redirection;
-
-mod builtins {
-    #[derive(Debug)]
-    pub struct Builtin;
-    ///Roughly analogous to process::Command
-    impl Builtin {
-        pub fn new() {}
-        //Possibly implement from String to do the parsing, similar to Step::parse_command
-    }
-}
+use crate::{redirection,builtin};
 
 /// Step, the basic Unit of execution of a Pipeline. Can either be a Shrimp Built-in function or a Command
 /// Design wise - a "Wrapper" enum was chosen because the Std::Command is a simple struct, it has no trait that builtins could implement (CommandExt are sealed)
 #[derive(Debug)]
 pub enum Step {
     Command(std::process::Command),
-    Builtin(builtins::Builtin),
+    Builtin(builtin::Builtin),
 }
 
 /// Roughly analogous to process::Output mixed with process::ExitStatus.

@@ -419,7 +419,10 @@ mod test {
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
         file.read_to_string(&mut buff).unwrap();
-        assert_eq!("test\nwc: invalid option -- 'x'\nTry 'wc --help' for more information.", buff.trim());
+        assert_eq!(
+            "test\nwc: invalid option -- 'x'\nTry 'wc --help' for more information.",
+            buff.trim()
+        );
     }
     #[test]
     fn pipeline_write_error_existing_file() {

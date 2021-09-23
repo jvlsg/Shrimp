@@ -45,9 +45,11 @@ Shellzao Rust Implementation
 
 
 ## Basic features
-- [ ] Command execution: built-ins and external
-- [ ] Pipelining
+- [x] Command execution: built-ins and external
+- [x] Pipelining
 - [ ] IO Redirection
+  - [x] Files
+  - [ ] Network
 - [ ] Background Execution / Job management
 - [ ] Basic Scripting
 
