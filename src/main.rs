@@ -21,9 +21,9 @@ fn main() {
             _ => {
                 if let Ok(p) = Pipeline::new(input) {
                     match p.run() {
-                        Ok(_)=>{},
-                        Err(msg)=>{
-                            eprintln!("{}",msg);
+                        Ok(_) => {}
+                        Err(msg) => {
+                            eprintln!("{}", msg);
                         }
                     }
                 }

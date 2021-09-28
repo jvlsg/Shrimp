@@ -3,14 +3,14 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use crate::{redirection,builtin};
+use crate::{builtin::Builtin, redirection};
 
 /// Step, the basic Unit of execution of a Pipeline. Can either be a Shrimp Built-in function or a Command
 /// Design wise - a "Wrapper" enum was chosen because the Std::Command is a simple struct, it has no trait that builtins could implement (CommandExt are sealed)
 #[derive(Debug)]
 pub enum Step {
     Command(std::process::Command),
-    Builtin(builtin::Builtin),
+    Builtin(Builtin),
 }
 
 /// Roughly analogous to process::Output mixed with process::ExitStatus.
@@ -72,10 +72,39 @@ impl Step {
         Ok(command)
     }
 
+    // Parses a str and returns a Builtin ready to be Executed, or and error.
+    pub fn parse_builtin(raw_cmd_str: &str) -> Result<Builtin> {
+        let cmd_string = String::from(raw_cmd_str);
+        let mut words = cmd_string.split_whitespace();
+
+        let program = words.next();
+        if program.is_none() {
+           let e = Error::new(ErrorKind::InvalidInput, "Empty Builtin");
+           return Err(e);
+        }
+
+        let mut b_in = Builtin::new(program.unwrap());
+
+        for w in words {
+            match w {
+                //There can be no arguments after the beginning of redirection
+                _ if crate::redirection::Redirection::is_redirection(w) => {
+                    break;
+                }
+                //Arguments
+                _ => {
+                    b_in = b_in.arg(&w);
+                }
+            }
+        }
+        Ok(b_in)
+    }
+
     /// Runs the Step
-    pub fn run(&mut self, stdin: &[u8]) -> Result<StepOutput> {
+    /// Err if the Step couldn't run
+    pub fn run(self, stdin: &[u8]) -> Result<StepOutput> {
         match self {
-            Step::Command(c) => {
+            Step::Command(mut c) => {
                 let mut process = c
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
@@ -85,7 +114,7 @@ impl Step {
                 process.wait().unwrap();
                 Ok(StepOutput::from(process.wait_with_output()?))
             }
-            _ => unimplemented!(),
+            Step::Builtin(b) => b.run(stdin),
         }
     }
 }

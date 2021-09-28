@@ -1,7 +1,7 @@
 ///Module with functions to Handle IO Redirections
 use std::{
     fs::{File, OpenOptions},
-    io::{prelude::*, Result},
+    io::Result,
     net::{SocketAddr, ToSocketAddrs},
     str::FromStr,
 };
