@@ -16,7 +16,7 @@ pub fn run(args: Vec<String>, _input: &[u8]) -> StepOutput {
 
     // if malformed_path
     if env::set_current_dir(path).is_err() {
-        stderr.extend_from_slice("Directory not found".as_bytes());
+        stderr.extend_from_slice("cd: Directory not found\n".as_bytes());
         success = false;
         code = Some(1);
     }
