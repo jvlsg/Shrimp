@@ -120,8 +120,8 @@ impl Pipeline {
             pipes,
             steps,
             in_reader,
-            out_writer: out_writer.unwrap_or(Box::new(std::io::stdout())),
-            err_writer: err_writer.unwrap_or(Box::new(std::io::stderr())),
+            out_writer: out_writer.unwrap_or_else(|| Box::new(std::io::stdout())),
+            err_writer: err_writer.unwrap_or_else(|| Box::new(std::io::stderr())),
             redirection_write_type,
         })
     }
@@ -419,7 +419,10 @@ mod test {
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
         file.read_to_string(&mut buff).unwrap();
-        assert_eq!("test\nwc: invalid option -- 'x'\nTry 'wc --help' for more information.", buff.trim());
+        assert_eq!(
+            "test\nwc: invalid option -- 'x'\nTry 'wc --help' for more information.",
+            buff.trim()
+        );
     }
     #[test]
     fn pipeline_write_error_existing_file() {

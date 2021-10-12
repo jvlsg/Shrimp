@@ -1,7 +1,7 @@
 ///Module with functions to Handle IO Redirections
 use std::{
     fs::{File, OpenOptions},
-    io::{prelude::*, Result},
+    io::Result,
     net::{SocketAddr, ToSocketAddrs},
     str::FromStr,
 };
@@ -54,18 +54,18 @@ impl Redirection {
         err_writer: &mut Option<Box<dyn PipelineWriter>>,
     ) -> Result<()> {
         //src_or_dst is a Socket
-        if let Ok(_socket) = src_or_dst.to_socket_addrs() {
+        if let Ok(socket) = src_or_dst.to_socket_addrs() {
             //TODO 2021-08-28 Implement for network
             //NOT SURE THIS WORKS FOR URLS
-            // match self {
-            //     Redirection::ReadIn => {}
-            //     Redirection::WriteOut => {}
-            //     Redirection::AppendOut => {}
-            //     Redirection::WriteErr => {}
-            //     Redirection::AppendErr => {}
-            //     Redirection::WriteOutErr => {}
-            //     Redirection::AppendOutErr => {}
-            // }
+            match self {
+                Redirection::ReadIn => {}
+                Redirection::WriteOut => {}
+                Redirection::AppendOut => {}
+                Redirection::WriteErr => {}
+                Redirection::AppendErr => {}
+                Redirection::WriteOutErr => {}
+                Redirection::AppendOutErr => {}
+            }
         }
         //Default to a path in the filesystem
         else {
@@ -130,5 +130,4 @@ mod test {
         assert_eq!(Redirection::from_str("2>&1"), Ok(Redirection::WriteOutErr));
         assert_eq!(Redirection::from_str("&>>"), Ok(Redirection::AppendOutErr));
     }
-
 }

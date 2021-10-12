@@ -3,24 +3,14 @@ use std::{
     process::{Command, Output, Stdio},
 };
 
-use crate::redirection;
-
-mod builtins {
-    #[derive(Debug)]
-    pub struct Builtin;
-    ///Roughly analogous to process::Command
-    impl Builtin {
-        pub fn new() {}
-        //Possibly implement from String to do the parsing, similar to Step::parse_command
-    }
-}
+use crate::{builtin::Builtin, redirection};
 
 /// Step, the basic Unit of execution of a Pipeline. Can either be a Shrimp Built-in function or a Command
 /// Design wise - a "Wrapper" enum was chosen because the Std::Command is a simple struct, it has no trait that builtins could implement (CommandExt are sealed)
 #[derive(Debug)]
 pub enum Step {
     Command(std::process::Command),
-    Builtin(builtins::Builtin),
+    Builtin(Builtin),
 }
 
 /// Roughly analogous to process::Output mixed with process::ExitStatus.
@@ -46,26 +36,32 @@ impl From<Output> for StepOutput {
 
 impl Step {
     ///Creates a new Step. It will validate if the desired command is a Built-in or an external program and
-    /// Return the enum variant accordingly
+    /// Return the enum variant accordingly.
+    ///
+    /// In the (extremely) unlikely scenario of naming conflict with a Built-in, the Built-in will take prescedence
     pub fn new(raw_step_str: &str) -> Result<Step> {
-        //TODO Improve this step creation - CHECK IF BUILT-IN
-        let c = Step::parse_command(raw_step_str)?;
-        Ok(Step::Command(c))
-    }
+        let step_str = String::from(raw_step_str);
+        let mut words = step_str.split_whitespace().peekable();
 
-    /// Parses a string and returns a Command ready to be Executed, or and error.
-    fn parse_command(raw_cmd_str: &str) -> Result<Command> {
-        let cmd_string = String::from(raw_cmd_str);
-        let mut words = cmd_string.split_whitespace();
-
-        //Parse program
-        let program = words.next();
-        if program.is_none() {
-            let e = Error::new(ErrorKind::InvalidInput, "Empty Program");
+        if words.peek().is_none() {
+            let e = Error::new(ErrorKind::InvalidInput, "Empty Step");
             return Err(e);
         }
 
-        let mut command = Command::new(program.unwrap());
+        //Check if builtin with that name exists
+        if Builtin::exists(words.peek().unwrap()) {
+            let b = Step::parse_builtin(words)?;
+            Ok(Step::Builtin(b))
+        } else {
+            let c = Step::parse_command(words)?;
+            Ok(Step::Command(c))
+        }
+    }
+
+    /// Parses a peekable SplitWhitespace iterator and returns a Command ready to be Executed, or an error.
+    /// Panics - If no values present in iterator - as this should be handled by the caller function, e.g. `Step::new`
+    fn parse_command(mut words: std::iter::Peekable<std::str::SplitWhitespace>) -> Result<Command> {
+        let mut command = Command::new(words.next().unwrap());
 
         for w in words {
             match w {
@@ -82,10 +78,31 @@ impl Step {
         Ok(command)
     }
 
+    /// Parses a peekable SplitWhitespace iterator and returns a Builtin ready to be Executed, or an error.
+    /// Panics - If no values present in iterator - as this should be handled by the caller function, e.g. `Step::new`
+    fn parse_builtin(mut words: std::iter::Peekable<std::str::SplitWhitespace>) -> Result<Builtin> {
+        let mut b_in = Builtin::new(words.next().unwrap());
+
+        for w in words {
+            match w {
+                //There can be no arguments after the beginning of redirection
+                _ if crate::redirection::Redirection::is_redirection(w) => {
+                    break;
+                }
+                //Arguments
+                _ => {
+                    b_in = b_in.arg(&w);
+                }
+            }
+        }
+        Ok(b_in)
+    }
+
     /// Runs the Step
-    pub fn run(&mut self, stdin: &[u8]) -> Result<StepOutput> {
+    /// Err if the Step couldn't run
+    pub fn run(self, stdin: &[u8]) -> Result<StepOutput> {
         match self {
-            Step::Command(c) => {
+            Step::Command(mut c) => {
                 let mut process = c
                     .stdin(Stdio::piped())
                     .stdout(Stdio::piped())
@@ -95,7 +112,28 @@ impl Step {
                 process.wait().unwrap();
                 Ok(StepOutput::from(process.wait_with_output()?))
             }
-            _ => unimplemented!(),
+            Step::Builtin(b) => b.run(stdin),
+        }
+    }
+}
+
+mod test {
+    use super::*;
+    #[test]
+    fn empty_step() {
+        let s_str = "";
+        let s = Step::new(s_str);
+        assert_eq!(s.is_err(), true);
+        assert_eq!(s.unwrap_err().kind(), ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn parse_simple_builtin() {
+        let cd_str = "cd /home/user";
+        let b = Step::new(cd_str).unwrap();
+        if let Step::Builtin(broa) = b {
+            assert_eq!(&broa.name, "cd");
+            assert_eq!(&broa.args, &vec![String::from("/home/user")]);
         }
     }
 }
