@@ -1,4 +1,5 @@
 pub mod cd;
+pub mod exit;
 /*
 ## Built-in Commands
 

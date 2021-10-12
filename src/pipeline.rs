@@ -120,8 +120,8 @@ impl Pipeline {
             pipes,
             steps,
             in_reader,
-            out_writer: out_writer.unwrap_or(Box::new(std::io::stdout())),
-            err_writer: err_writer.unwrap_or(Box::new(std::io::stderr())),
+            out_writer: out_writer.unwrap_or_else(|| Box::new(std::io::stdout())),
+            err_writer: err_writer.unwrap_or_else(|| Box::new(std::io::stderr())),
             redirection_write_type,
         })
     }

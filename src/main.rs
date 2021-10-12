@@ -16,8 +16,6 @@ fn main() {
         //4. Implement a List
 
         match input {
-            "exit" | "quit" => break,
-
             _ => {
                 if let Ok(p) = Pipeline::new(input) {
                     match p.run() {

@@ -1,25 +1,19 @@
-use crate::builtin_functions::cd;
+use crate::builtin_functions::*;
 use crate::step::StepOutput;
-/*
-## Built-in Commands
+use std::{
+    fmt, io,
+    io::{Error, ErrorKind},
+};
 
-* `cd <path>` makes the directory 'path' the current directory
-* `exit` terminates foosh
-* `quit` same as exit
-* `fg [job-id]` sends job identified by jobid to foreground. If jobid is not specified, defaults to job which sate has been most recently modified.
-* `bg [job-id]` sends job identified by jobid to background. If jobid is not specified, defaults to job which sate has been most recently modified.
-* `jobs` output a list of currently active jobs  If a built-in command conflicts with the name of an external program, the built in command prevails --- unless the program path is explicitly given.
-* `echo`
-*/
-use std::{fmt,io,io::{Error, ErrorKind}};
-
-/// Args, Stdin
+/// Built-in Function type, functions of this type implement the actual logic of the built-in commands in their respective files `cd`, `exit`, etc.Builtin
+/// 
+/// It takes as input a Vec for Args, and an array of Bytes as Stdin
 pub type BuiltinFn = fn(Vec<String>, &[u8]) -> StepOutput;
 
 ///Roughly analogous to process::Command
 pub struct Builtin {
-    name: String,
-    args: Vec<String>,
+    pub name: String,
+    pub args: Vec<String>,
 }
 
 impl fmt::Debug for Builtin {
@@ -35,7 +29,8 @@ impl Builtin {
     fn function_map(name: &str) -> io::Result<BuiltinFn> {
         match name {
             "cd" => Ok(cd::run),
-            _ => Err(Error::new(ErrorKind::InvalidInput, "Empty Command")),
+            "exit" | "quit" => Ok(exit::run),
+            _ => Err(Error::new(ErrorKind::InvalidInput, "Non-existing Built-in")),
         }
     }
 
@@ -51,31 +46,35 @@ impl Builtin {
         self
     }
 
-    ///Execute Logic
-    /// Ok and result of the Builtin
-    /// Err if the Builtin couldn't run
+    ///Execute Logic, returning the StepOutput of the Builtin, or Err if it couldn run
     pub fn run(self, stdin: &[u8]) -> io::Result<StepOutput> {
         let function = Builtin::function_map(&self.name)?;
         Ok((function)(self.args, stdin))
     }
 
+    ///Checks if a builtin of a given name exists in the the Builtin's function_map
     pub fn exists(name: &str) -> bool {
         Builtin::function_map(name).is_ok()
     }
-
 }
-    
+
 mod test {
-    use super::*;
-    use std::{path::PathBuf,env};
+    use super::Builtin;
     #[test]
     fn cd_root() {
+        use std::{env, path::PathBuf};
+
         let b = Builtin::new("cd").arg("/");
 
-        b.run(&[]);
-        assert_eq!(env::current_dir().unwrap(),PathBuf::from("/"))
+        let _r = b.run(&[]);
+        assert_eq!(env::current_dir().unwrap(), PathBuf::from("/"))
     }
 
-    // #[test]
-    //fn non_existing_builtin
+    #[test]
+    fn non_existing_builtin() {
+        let b = Builtin::new("oasijgoi").arg("3");
+
+        let e = b.run(&[]);
+        assert_eq!(e.is_err(), true)
+    }
 }
