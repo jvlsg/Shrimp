@@ -5,6 +5,8 @@ use std::{
     io::Result
 };
 
+use dirs;
+
 // TODO switch to result
 pub fn expand(input: &str) -> String {
     let mut expanded_input = String::with_capacity(input.len());
@@ -17,9 +19,17 @@ pub fn expand(input: &str) -> String {
             '$' => {
                 expand_env_var(&mut chars, &mut temp_buffer);
             }
-            '*' => {
-                expand_pathname(&mut chars, &mut temp_buffer);
+            '*' => {//Expand until the next non-special character
+                // expand_pathname(&mut chars, &mut temp_buffer);
+                
             }
+            '~' => {
+                if let Some(home) = dirs::home_dir() {
+                    temp_buffer.push_str(home.to_str().unwrap_or_default());
+                }
+                //TODO else, log?
+                
+            }            
             _ if c.is_whitespace() => {
                 dbg!(&temp_buffer);
                 expanded_input.push_str(&temp_buffer);
@@ -50,10 +60,10 @@ fn expand_env_var(chars: &mut std::iter::Peekable<std::str::Chars>, temp_buffer:
     }
 }
 
+//Todo
 fn expand_pathname(chars: &mut std::iter::Peekable<std::str::Chars>, temp_buffer: &mut String) -> std::io::Result<()> {
     //See contents of temp_buffer - if it forms a path
     //Get before * -
- 
     let mut dir_path = if temp_buffer.is_empty() {std::env::current_dir()?} else {path::PathBuf::from(&temp_buffer)};
     //Beginning of filename, if exists
     let mut before_star = None;

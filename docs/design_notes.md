@@ -20,12 +20,18 @@
 
 - [x] `$` env variables expansion
 
-- [ ] `*` Pathname expansion
+- [ ] `*` String Wildcard Pathname expansion
   * `D*` , `*.rs` , `/usr/*/share`
 
-- [ ] `~` Expansion for user's home
+- [ ] `?` Character Wildcard Pathname expansion
+  * `ls image?.png` for `image1.png`, `image2.png`, etc...
+
+- [ ] `[...]` Character Wildcard Pathname expansion
+  * `ls /etc/[ab]*.conf`, etc...
+
+- [x] `~` Expansion for user's home
   * When used at the beginning of a word, it expands into the name of the home directory of the named user, or if no user is named, the home directory of the current user:
-  * `~foo/` for user foo (?)
+  * ~~`~foo/` for user foo (?)~~ Nope, laziness
 
 
 
@@ -60,3 +66,5 @@
 - https://adriann.github.io/rust_parser.html
 - https://linuxcommand.org/lc3_lts0080.php
 - https://docs.rs/shellexpand/2.1.0/shellexpand/
+- https://docs.rs/dirs/4.0.0/dirs/fn.home_dir.html
+- https://docs.rs/glob/0.3.0/glob/
