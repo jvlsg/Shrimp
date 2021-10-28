@@ -20,8 +20,12 @@
 
 - [x] `$` env variables expansion
 
-- [ ] `*` String Wildcard Pathname expansion
+- [ ] `*` String Wildcard Pathname expansion. matches any (possibly empty) sequence of characters.
   * `D*` , `*.rs` , `/usr/*/share`
+
+- [ ] `**` Recursive string Pathname expansion , matches the current directory and arbitrary subdirectories - Must be an entire path component
+  - `a/**/b` is valid, but `a**/b` or `a/**b` is not
+  - `***` or more is also invalid
 
 - [ ] `?` Character Wildcard Pathname expansion
   * `ls image?.png` for `image1.png`, `image2.png`, etc...
@@ -64,7 +68,7 @@
 - http://zsh.sourceforge.net/Doc/Release/Shell-Grammar.html
 - https://github.com/Swoorup/mysh
 - https://adriann.github.io/rust_parser.html
-- https://linuxcommand.org/lc3_lts0080.php
+- https://linuxcommand.org/lc3_lts00802.php
 - https://docs.rs/shellexpand/2.1.0/shellexpand/
 - https://docs.rs/dirs/4.0.0/dirs/fn.home_dir.html
 - https://docs.rs/glob/0.3.0/glob/

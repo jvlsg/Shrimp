@@ -21,12 +21,13 @@ fn main() {
             }
         }
 
+        //TODO get possible errors, e.g. if PairNotFound, continues reading
         let input = expand(&buffer);
 
         //3. Implement sublists, pipelines separated with && and ||
         //4. Implement a List
 
-        if let Ok(p) = Pipeline::new(&input) {
+        if let Ok(p) = Pipeline::new(input) {
             match p.run() {
                 Ok(_) => {}
                 Err(msg) => {

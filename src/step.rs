@@ -39,9 +39,8 @@ impl Step {
     /// Return the enum variant accordingly.
     ///
     /// In the (extremely) unlikely scenario of naming conflict with a Built-in, the Built-in will take prescedence
-    pub fn new(raw_step_str: &str) -> Result<Step> {
-        let step_str = String::from(raw_step_str);
-        let mut words = step_str.split_whitespace().peekable();
+    pub fn new(step_words: Vec<String>) -> Result<Step> {
+        let mut words = step_words.into_iter().peekable();
 
         if words.peek().is_none() {
             let e = Error::new(ErrorKind::InvalidInput, "Empty Step");
@@ -60,13 +59,15 @@ impl Step {
 
     /// Parses a peekable SplitWhitespace iterator and returns a Command ready to be Executed, or an error.
     /// Panics - If no values present in iterator - as this should be handled by the caller function, e.g. `Step::new`
-    fn parse_command(mut words: std::iter::Peekable<std::str::SplitWhitespace>) -> Result<Command> {
+    fn parse_command(
+        mut words: std::iter::Peekable<std::vec::IntoIter<std::string::String>>,
+    ) -> Result<Command> {
         let mut command = Command::new(words.next().unwrap());
 
         for w in words {
             match w {
                 //There can be no arguments after the beginning of redirection
-                _ if redirection::Redirection::is_redirection(w) => {
+                _ if redirection::Redirection::is_redirection(&w) => {
                     break;
                 }
                 //Arguments
@@ -80,13 +81,15 @@ impl Step {
 
     /// Parses a peekable SplitWhitespace iterator and returns a Builtin ready to be Executed, or an error.
     /// Panics - If no values present in iterator - as this should be handled by the caller function, e.g. `Step::new`
-    fn parse_builtin(mut words: std::iter::Peekable<std::str::SplitWhitespace>) -> Result<Builtin> {
-        let mut b_in = Builtin::new(words.next().unwrap());
+    fn parse_builtin(
+        mut words: std::iter::Peekable<std::vec::IntoIter<std::string::String>>,
+    ) -> Result<Builtin> {
+        let mut b_in = Builtin::new(&words.next().unwrap());
 
         for w in words {
             match w {
                 //There can be no arguments after the beginning of redirection
-                _ if crate::redirection::Redirection::is_redirection(w) => {
+                _ if crate::redirection::Redirection::is_redirection(&w) => {
                     break;
                 }
                 //Arguments
@@ -121,7 +124,7 @@ mod test {
     use super::*;
     #[test]
     fn empty_step() {
-        let s_str = "";
+        let s_str = vec![];
         let s = Step::new(s_str);
         assert_eq!(s.is_err(), true);
         assert_eq!(s.unwrap_err().kind(), ErrorKind::InvalidInput);
@@ -129,7 +132,7 @@ mod test {
 
     #[test]
     fn parse_simple_builtin() {
-        let cd_str = "cd /home/user";
+        let cd_str = vec![String::from("cd /home/user")];
         let b = Step::new(cd_str).unwrap();
         if let Step::Builtin(broa) = b {
             assert_eq!(&broa.name, "cd");

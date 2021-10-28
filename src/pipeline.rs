@@ -45,9 +45,8 @@ impl fmt::Debug for Pipeline {
 
 impl Pipeline {
     /// TODO 2021-07-21 Currently the parsing implementation is naive, improve it.
-    pub fn new(raw_pipeline_str: &str) -> Result<Pipeline> {
-        let mut pipeline_string = String::from(raw_pipeline_str);
-
+    /// CHANGE INPUT FOR A ITER OF STRINGS
+    pub fn new(words: Vec<String>) -> Result<Pipeline> {
         let mut steps: Vec<Step> = vec![];
         let mut pipes: Vec<Pipe> = vec![];
 
@@ -56,64 +55,58 @@ impl Pipeline {
         let mut err_writer: Option<Box<dyn PipelineWriter>> = None;
 
         let mut redirection_write_type = None;
+        let mut words_iter = words.into_iter();
 
-        let mut words = pipeline_string.split_whitespace();
+        let mut next_step_temp_buffer: Vec<String> = vec![];
 
-        //Find redirection
-        while let Some(w) = words.next() {
-            if let Ok(redir) = Redirection::from_str(w) {
-                //Pipeline only needs the Type of redirection (so it knows which variable to set) and the corresponding
-                //reader / writer
+        while let Some(w) = words_iter.next() {
+            match w.as_str() {
+                _ if Redirection::is_redirection(&w) => {
+                    let redir = Redirection::from_str(&w).unwrap();
 
-                let src_or_dst = words.next();
-                if src_or_dst.is_none() {
-                    return Err(Error::new(ErrorKind::InvalidInput, "Empty redirection"));
+                    //Pipeline only needs the Type of redirection (so it knows which variable to set) and the corresponding
+                    //reader / writer
+
+                    let src_or_dst = words_iter.next();
+                    if src_or_dst.is_none() {
+                        return Err(Error::new(ErrorKind::InvalidInput, "Empty redirection"));
+                    }
+                    let src_or_dst = src_or_dst.unwrap();
+
+                    //We'll only be able to set the reader / writer (File, Socket, etc) DEPENDING on the redirection Type
+                    redir.configure_redirection(
+                        &src_or_dst,
+                        &mut in_reader,
+                        &mut out_writer,
+                        &mut err_writer,
+                    )?;
+
+                    if redir != Redirection::ReadIn {
+                        redirection_write_type = Some(redir);
+                    }
                 }
-                let src_or_dst = src_or_dst.unwrap();
 
-                //We'll only be able to set the reader / writer (File, Socket, etc) DEPENDING on the redirection Type
-                redir.configure_redirection(
-                    src_or_dst,
-                    &mut in_reader,
-                    &mut out_writer,
-                    &mut err_writer,
-                )?;
+                // Step Delimitator
+                "|" => {
+                    pipes.push(Pipe::Std);
+                    steps.push(Step::new(next_step_temp_buffer.to_vec())?);
+                    next_step_temp_buffer.clear();
+                }
 
-                if redir != Redirection::ReadIn {
-                    redirection_write_type = Some(redir);
+                "|&" => {
+                    pipes.push(Pipe::Err);
+                    steps.push(Step::new(next_step_temp_buffer.to_vec())?);
+                    next_step_temp_buffer.clear();
+                }
+
+                _ => {
+                    next_step_temp_buffer.push(w);
                 }
             }
         }
 
-        //Find Pipes & Steps
-        loop {
-            //Next pipe index - could be standard or Error
-            let next_pipe = pipeline_string.find('|');
-
-            //No / No more pipes, add remaining of the string to steps
-            //This guarantees at least one step to the Pipeline
-            if next_pipe.is_none() {
-                steps.push(Step::new(&pipeline_string)?);
-                break;
-            }
-
-            let next_pipe = next_pipe.unwrap();
-
-            let next_err_pipe = pipeline_string.find("|&");
-
-            //Check if the next pipe is standard , or error
-            let is_err_pipe = next_pipe == next_err_pipe.unwrap_or(usize::MAX);
-
-            let (step_str, remainder) = pipeline_string.split_at(next_pipe);
-            steps.push(Step::new(&step_str)?);
-
-            if is_err_pipe {
-                pipes.push(Pipe::Err);
-                pipeline_string = String::from(remainder.strip_prefix("|&").unwrap());
-            } else {
-                pipes.push(Pipe::Std);
-                pipeline_string = String::from(remainder.strip_prefix("|").unwrap());
-            }
+        if !next_step_temp_buffer.is_empty() {
+            steps.push(Step::new(next_step_temp_buffer.to_vec())?);
         }
 
         Ok(Pipeline {
@@ -202,9 +195,9 @@ mod test {
     fn simple_pipeline() {
         let p = Pipeline {
             steps: vec![
-                Step::new("echo -n abcde").unwrap(),
-                Step::new("tr -d a").unwrap(),
-                Step::new("wc -c").unwrap(),
+                Step::new(vec!["echo".to_owned(), "-n".to_owned(), "abcde".to_owned()]).unwrap(),
+                Step::new(vec!["tr".to_owned(), "-d".to_owned(), "a".to_owned()]).unwrap(),
+                Step::new(vec!["wc".to_owned(), "-c".to_owned()]).unwrap(),
             ],
             pipes: vec![Pipe::Std, Pipe::Std],
             in_reader: None,
@@ -219,7 +212,14 @@ mod test {
     #[test]
     fn simple_pipeline_redir_in() {
         let p = Pipeline {
-            steps: vec![Step::new("wc -c").unwrap()],
+            steps: vec![Step::new(
+                "wc -c"
+                    .to_owned()
+                    .split_whitespace()
+                    .map(|s| s.to_owned())
+                    .collect(),
+            )
+            .unwrap()],
             pipes: vec![],
             in_reader: Some(Box::new(File::open("tests/lorem").unwrap())),
             out_writer: Box::new(std::io::stdout()),
@@ -249,9 +249,30 @@ mod test {
     fn simple_pipeline_err() {
         let p = Pipeline {
             steps: vec![
-                Step::new("echo -n abcde").unwrap(),
-                Step::new("tr -3 a").unwrap(),
-                Step::new("wc -c").unwrap(),
+                Step::new(
+                    "echo -n abcde"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
+                Step::new(
+                    "tr -3 a"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
+                Step::new(
+                    "wc -c"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
             ],
             pipes: vec![Pipe::Err, Pipe::Err],
             in_reader: None,
@@ -266,14 +287,19 @@ mod test {
 
     #[test]
     fn parse_simple_pipeline() {
-        let p_str = Pipeline::new("echo \"asd\" |& grep a | wc -c").unwrap();
+        let input = "echo \"asd\" |& grep a | wc -c"
+            .to_owned()
+            .split_whitespace()
+            .map(|s| s.to_owned())
+            .collect();
+        let p_str = Pipeline::new(input).unwrap();
         dbg!(&p_str);
 
         let p = Pipeline {
             steps: vec![
-                Step::new("echo \"asd\"").unwrap(),
-                Step::new("grep a").unwrap(),
-                Step::new("wc -c").unwrap(),
+                Step::new(vec!["echo".to_owned(), "\"asd\"".to_owned()]).unwrap(),
+                Step::new(vec!["grep".to_owned(), "a".to_owned()]).unwrap(),
+                Step::new(vec!["wc".to_owned(), "-c".to_owned()]).unwrap(),
             ],
             pipes: vec![Pipe::Err, Pipe::Std],
             in_reader: None,
@@ -286,12 +312,40 @@ mod test {
 
     #[test]
     fn parse_pipeline_new_output() {
-        let p_str = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new").unwrap();
+        let input = "echo -n abcde | tr -d a | wc -c > tests/output_new"
+            .to_owned()
+            .split_whitespace()
+            .map(|s| s.to_owned())
+            .collect();
+
+        let p_str = Pipeline::new(input).unwrap();
+
         let p = Pipeline {
             steps: vec![
-                Step::new("echo -n abcde").unwrap(),
-                Step::new("tr -d a").unwrap(),
-                Step::new("wc -c").unwrap(),
+                Step::new(
+                    "echo -n abcde"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
+                Step::new(
+                    "tr -d a"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
+                Step::new(
+                    "wc -c"
+                        .to_owned()
+                        .split_whitespace()
+                        .map(|s| s.to_owned())
+                        .collect(),
+                )
+                .unwrap(),
             ],
             pipes: vec![Pipe::Std, Pipe::Std],
             in_reader: None,
@@ -313,24 +367,36 @@ mod test {
 
     #[test]
     fn parse_empty_pipeline() {
-        let p = Pipeline::new("");
-        assert_eq!(p.is_err(), true);
+        let p = Pipeline::new(vec![]);
+        assert_eq!(p.is_ok(), true);
         dbg!(&p);
     }
 
     #[test]
     fn parse_non_existing_input() {
-        let c = Pipeline::new("wc -c < tests/inputs > tests/output");
+        let c = Pipeline::new(
+            "wc -c < tests/inputs > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        );
         assert!(c.is_err());
         assert_eq!(c.unwrap_err().kind(), ErrorKind::NotFound);
     }
 
     #[test]
     fn simple_pipeline_read_existing_write_output_existing_file() {
-        Pipeline::new("wc -c < tests/lorem > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        Pipeline::new(
+            "wc -c < tests/lorem > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
@@ -340,14 +406,26 @@ mod test {
 
     #[test]
     fn simple_pipeline_overwrite_output_file() {
-        Pipeline::new("wc -c < tests/lorem > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
-        Pipeline::new("wc -w < tests/lorem > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        Pipeline::new(
+            "wc -c < tests/lorem > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
+        Pipeline::new(
+            "wc -w < tests/lorem > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
@@ -357,27 +435,45 @@ mod test {
 
     #[test]
     fn simple_pipeline_empty_out_redir() {
-        let p = Pipeline::new("wc -c < ");
+        let p = Pipeline::new(
+            "wc -c < "
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        );
         assert_eq!(p.is_err(), true);
         assert_eq!(p.unwrap_err().kind(), ErrorKind::InvalidInput);
     }
 
     #[test]
     fn three_step_pipeline() {
-        let p_res = Pipeline::new("echo -n abcde | tr -d a | wc -c")
-            .unwrap()
-            .run()
-            .unwrap();
+        let p_res = Pipeline::new(
+            "echo -n abcde | tr -d a | wc -c"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
         dbg!(&p_res);
         assert_eq!(String::from_utf8(p_res.stdout).unwrap().trim(), "4")
     }
 
     #[test]
     fn pipeline_write_output_create_new_file() {
-        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c > tests/output_new")
-            .unwrap()
-            .run()
-            .unwrap();
+        let _p = Pipeline::new(
+            "echo -n abcde | tr -d a | wc -c > tests/output_new"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
         let mut buff = String::new();
         let mut file = File::open("tests/output_new").unwrap();
@@ -388,15 +484,27 @@ mod test {
 
     #[test]
     fn pipeline_append_output_existing_file() {
-        Pipeline::new("echo test > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        Pipeline::new(
+            "echo test > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
-        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -c >> tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        let _p = Pipeline::new(
+            "echo -n abcde | tr -d a | wc -c >> tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
@@ -406,15 +514,27 @@ mod test {
 
     #[test]
     fn pipeline_append_err_existing_file() {
-        Pipeline::new("echo test > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        Pipeline::new(
+            "echo test > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
-        let _p = Pipeline::new("echo -n abcde | tr -d a | wc -x 2>> tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        let _p = Pipeline::new(
+            "echo -n abcde | tr -d a | wc -x 2>> tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
         let mut buff = String::new();
         let mut file = File::open("tests/output").unwrap();
@@ -426,7 +546,16 @@ mod test {
     }
     #[test]
     fn pipeline_write_error_existing_file() {
-        let res = Pipeline::new("ping a 2> tests/err").unwrap().run().unwrap();
+        let res = Pipeline::new(
+            "ping a 2> tests/err"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
         assert_eq!(res.success, false);
         assert_ne!(res.code, Some(0));
 
@@ -438,10 +567,16 @@ mod test {
 
     #[test]
     fn pipeline_write_output_and_error_existing_file() {
-        let res = Pipeline::new("ls tests/err erro &> tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        let res = Pipeline::new(
+            "ls tests/err erro &> tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
         assert_eq!(res.success, false);
         assert_ne!(res.code, Some(0));
 
@@ -456,10 +591,16 @@ mod test {
 
     #[test]
     fn pipeline_write_output_and_error_existing_file_alt() {
-        let res = Pipeline::new("ls tests/err erro 2>&1 tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        let res = Pipeline::new(
+            "ls tests/err erro 2>&1 tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
         assert_eq!(res.success, false);
         assert_ne!(res.code, Some(0));
 
@@ -474,15 +615,27 @@ mod test {
 
     #[test]
     fn pipeline_append_output_and_error_existing_file() {
-        Pipeline::new("echo test > tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        Pipeline::new(
+            "echo test > tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
 
-        let res = Pipeline::new("ls tests/err erro &>> tests/output")
-            .unwrap()
-            .run()
-            .unwrap();
+        let res = Pipeline::new(
+            "ls tests/err erro &>> tests/output"
+                .to_owned()
+                .split_whitespace()
+                .map(|s| s.to_owned())
+                .collect(),
+        )
+        .unwrap()
+        .run()
+        .unwrap();
         assert_eq!(res.success, false);
         assert_ne!(res.code, Some(0));
 
