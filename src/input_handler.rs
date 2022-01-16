@@ -1,4 +1,8 @@
-use std::{env, fs, io::{self,Write}, path};
+use std::{
+    env, fs,
+    io::{self, Write},
+    path,
+};
 
 use dirs;
 
@@ -13,7 +17,6 @@ fn read_line_into_main_prompt(buf: &mut String) {
     io::stdout().flush().unwrap();
     io::stdin().read_line(buf).unwrap();
 }
-
 
 fn read_line_into_secondary_prompt(buf: &mut String) {
     //PROMPT
@@ -53,7 +56,7 @@ pub fn read_user_input() -> Vec<String> {
 }
 
 ///Handles expansions / metacharacters the user can input on a line.
-pub fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), ExpansionError> {
+fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), ExpansionError> {
     let mut split_input: Vec<String> = Vec::with_capacity(input_raw.len()); //Worst case scenario, each char is whitespace separated
     let mut expanded_buffer = String::with_capacity(input_raw.len());
 
@@ -76,7 +79,8 @@ pub fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), 
                 //TODO else, log?
             }
             '\'' => {
-                leftover_buffer = single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer);
+                leftover_buffer =
+                    single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer);
                 dbg!("leftovers from single_quote", &leftover_buffer);
                 input_iter = leftover_buffer.chars().peekable();
             }
@@ -174,7 +178,7 @@ fn expand_pathname(
 }
 
 /// Supresses all expansions
-/// Gets ownership of a String w/ all input provided from the user so far. 
+/// Gets ownership of a String w/ all input provided from the user so far.
 /// Reads all input, including new lines if necessary, until a pair to `'` is found
 /// Leftover input *after* the `'`, if any, is returned andh should be used to update the iterator in the main loop
 fn single_quote_supression(curr_input_buffer: String, expanded_buffer: &mut String) -> String {

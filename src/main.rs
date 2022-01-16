@@ -1,14 +1,10 @@
 use std::io::{self, Write};
 
-use shrimp::{
-    preprocessor::{expand, read_user_input, ExpansionError},
-    Pipeline,
-};
+use shrimp::{input_handler, Pipeline};
 
 fn main() {
     loop {
-
-        let split_input = read_user_input();
+        let split_input = input_handler::read_user_input();
 
         //3. Implement sublists, pipelines separated with && and ||
         //4. Implement a List
