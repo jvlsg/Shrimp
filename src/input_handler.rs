@@ -62,19 +62,10 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
 
     let mut leftover_buffer = String::new();
     let mut input_iter = input_raw.chars().peekable();
-
-    fn return_leftover_iter(
-        leftover_value: String,
-        leftover_buffer: &mut String,
-    ) -> std::iter::Peekable<std::str::Chars> {
-        *leftover_buffer = leftover_value;
-        leftover_buffer.chars().peekable()
-    }
-
     while let Some(c) = input_iter.next() {
         match c {
             '$' => {
-                input_iter = return_leftover_iter(
+                input_iter = return_leftover_chars_peekable(
                     expand_env_var(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
@@ -94,13 +85,13 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
                 //TODO else, log?
             }
             '\'' => {
-                input_iter = return_leftover_iter(
+                input_iter = return_leftover_chars_peekable(
                     single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
             }
             '\"' => {
-                input_iter = return_leftover_iter(
+                input_iter = return_leftover_chars_peekable(
                     double_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
@@ -134,16 +125,23 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     Ok(())
 }
 
+/// Replaces the first string composed of alphanumeric and `_` with the value of a environment variable of the same name, or blank "" as a default
+/// Returns any leftover input
 fn expand_env_var(input_buffer: String, expanded_buffer: &mut String) -> String {
     //Get var name
-    let mut input_iter = input_buffer.split_whitespace();
-    let var_name = input_iter.next().unwrap_or_default();
-    // let var_name = get_next_word_whitespace_separated(input_iter);
+    //Get up until a delimiter... i.e. read alphanumeric and _
+    let (var_name, _) = input_buffer
+        .split_once(|c| !char::is_alphanumeric(c) && c != '_')
+        .unwrap_or_default();
+
     dbg!(&var_name);
     if let Ok(value) = env::var(var_name) {
         expanded_buffer.push_str(&value);
     }
-    input_iter.collect()
+    input_buffer
+        .strip_prefix(var_name)
+        .unwrap_or_default()
+        .to_owned()
 }
 
 //Todo
@@ -199,7 +197,7 @@ fn expand_pathname(
 /// Supresses all expansions
 /// Gets ownership of a String w/ all input provided from the user so far.
 /// Reads all input, including new lines if necessary, until a pair to `'` is found
-/// Leftover input *after* the `'`, if any, is returned andh should be used to update the iterator in the main loop
+/// Leftover input *after* the `'`, if any, is returned and should be used to update the iterator in the main loop
 fn single_quote_supression(curr_input_buffer: String, expanded_buffer: &mut String) -> String {
     let mut found_pair = false;
     let mut next_input_buffer = String::new();
@@ -231,21 +229,23 @@ fn single_quote_supression(curr_input_buffer: String, expanded_buffer: &mut Stri
 
 /// Supresses all expansions, with the exception of $ and \ expansion
 /// Gets ownership of a String w/ all input provided from the user so far.
-/// Reads all input, including new lines if necessary, until a pair to `'` is found
-/// Leftover input *after* the `'`, if any, is returned andh should be used to update the iterator in the main loop
+/// Reads all input, including new lines if necessary, until a pair to `"` is found
+/// Leftover input *after* the `"`, if any, is returned and should be used to update the iterator in the main loop
 fn double_quote_supression(curr_input_buffer: String, expanded_buffer: &mut String) -> String {
     let mut found_pair = false;
     let mut next_input_buffer = String::new();
     let mut curr_input_iter = curr_input_buffer.chars();
-    let mut leftover;
+    let mut leftover_buffer = String::new();
 
     while !found_pair {
         while let Some(c) = curr_input_iter.next() {
             dbg!(&expanded_buffer);
             match c {
                 '$' => {
-                    leftover = expand_env_var(curr_input_iter.by_ref().collect(), expanded_buffer);
-                    curr_input_iter = leftover.chars();
+                    curr_input_iter = return_leftover_chars(
+                        expand_env_var(curr_input_iter.by_ref().collect(), expanded_buffer),
+                        &mut leftover_buffer,
+                    );
                 }
                 '\"' => {
                     found_pair = true;
@@ -265,26 +265,6 @@ fn double_quote_supression(curr_input_buffer: String, expanded_buffer: &mut Stri
         }
     }
     curr_input_iter.collect()
-    // let mut found_pair = false;
-
-    // while let Some(c) = chars.next() {
-    //     match c {
-    //         '\'' => {
-    //             found_pair = true;
-    //             break;
-    //         }
-    //         _ => {
-    //             //preserve all characters including whitespace
-    //             expanded_buffer.push(c);
-    //         }
-    //     }
-    // }
-
-    // //If not found pair, return error
-    // if !found_pair {
-    //     return Err(ExpansionError::PairNotFound);
-    // }
-    // Ok(())
 }
 
 fn get_next_word_whitespace_separated(
@@ -299,6 +279,18 @@ fn get_next_word_whitespace_separated(
         next_word.push(input_iter.next().unwrap());
     }
     next_word
+}
+
+fn return_leftover_chars(leftover_value: String, leftover_buffer: &mut String) -> std::str::Chars {
+    *leftover_buffer = leftover_value;
+    leftover_buffer.chars()
+}
+
+fn return_leftover_chars_peekable(
+    leftover_value: String,
+    leftover_buffer: &mut String,
+) -> std::iter::Peekable<std::str::Chars> {
+    return_leftover_chars(leftover_value, leftover_buffer).peekable()
 }
 
 mod test {

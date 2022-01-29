@@ -40,8 +40,8 @@
 
 
 #### Quoting - Supress expansion
-  * [ ] `'` - **Supresses** ALL expansions
-  * [ ] `"` - If we place text inside double quotes, all the special characters used by the shell lose their special meaning and are treated as ordinary characters. The **exceptions** are “$”, “\” (backslash), and “`” (back- quote). This means that **word-splitting, pathname expansion, tilde expansion, and brace expansion are suppressed**, but parameter expansion, arithmetic expansion, and command substitution are still carried out
+  * [x] `'` - **Supresses** ALL expansions
+  * [x] `"` - If we place text inside double quotes, all the special characters used by the shell lose their special meaning and are treated as ordinary characters. The **exceptions** are “$”, “\” (backslash), and “`” (back- quote). This means that **word-splitting, pathname expansion, tilde expansion, and brace expansion are suppressed**, but parameter expansion, arithmetic expansion, and command substitution are still carried out
   * [ ] `\`
     * Ignore new line
     * \n 	newline 	Adding blank lines to text
