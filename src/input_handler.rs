@@ -60,35 +60,50 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     let mut split_input: Vec<String> = Vec::with_capacity(input_raw.len()); //Worst case scenario, each char is whitespace separated
     let mut expanded_buffer = String::with_capacity(input_raw.len());
 
-    let mut leftover_buffer;
+    let mut leftover_buffer = String::new();
     let mut input_iter = input_raw.chars().peekable();
+
+    fn return_leftover_iter(
+        leftover_value: String,
+        leftover_buffer: &mut String,
+    ) -> std::iter::Peekable<std::str::Chars> {
+        *leftover_buffer = leftover_value;
+        leftover_buffer.chars().peekable()
+    }
 
     while let Some(c) = input_iter.next() {
         match c {
             '$' => {
-                leftover_buffer = expand_env_var(input_iter.by_ref().collect(), &mut expanded_buffer);
-                input_iter = leftover_buffer.chars().peekable();
+                input_iter = return_leftover_iter(
+                    expand_env_var(input_iter.by_ref().collect(), &mut expanded_buffer),
+                    &mut leftover_buffer,
+                );
             }
             '*' | '?' | '[' => { //Expand until the next non-special character
                  // expand_pathname(&mut chars, &mut expanded_buffer);
             }
             '~' => {
-                // TODO check if next character is whitespace or  /
-                if let Some(home) = dirs::home_dir() {
-                    expanded_buffer.push_str(home.to_str().unwrap_or_default());
+                if let Some(next_char) = input_iter.peek() {
+                    if *next_char == '/' || next_char.is_whitespace() {
+                        if let Some(home) = dirs::home_dir() {
+                            expanded_buffer.push_str(home.to_str().unwrap_or_default());
+                        }
+                    }
                 }
+
                 //TODO else, log?
             }
             '\'' => {
-                leftover_buffer =
-                    single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer);
-                dbg!("leftovers from single_quote", &leftover_buffer);
-                input_iter = leftover_buffer.chars().peekable();
+                input_iter = return_leftover_iter(
+                    single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
+                    &mut leftover_buffer,
+                );
             }
             '\"' => {
-                leftover_buffer =
-                    double_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer);
-                input_iter = leftover_buffer.chars().peekable();
+                input_iter = return_leftover_iter(
+                    double_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
+                    &mut leftover_buffer,
+                );
             }
             '\\' => {
                 unimplemented!()
@@ -119,10 +134,7 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     Ok(())
 }
 
-fn expand_env_var(
-    input_buffer: String,
-    expanded_buffer: &mut String,
-) -> String {
+fn expand_env_var(input_buffer: String, expanded_buffer: &mut String) -> String {
     //Get var name
     let mut input_iter = input_buffer.split_whitespace();
     let var_name = input_iter.next().unwrap_or_default();
@@ -218,6 +230,9 @@ fn single_quote_supression(curr_input_buffer: String, expanded_buffer: &mut Stri
 }
 
 /// Supresses all expansions, with the exception of $ and \ expansion
+/// Gets ownership of a String w/ all input provided from the user so far.
+/// Reads all input, including new lines if necessary, until a pair to `'` is found
+/// Leftover input *after* the `'`, if any, is returned andh should be used to update the iterator in the main loop
 fn double_quote_supression(curr_input_buffer: String, expanded_buffer: &mut String) -> String {
     let mut found_pair = false;
     let mut next_input_buffer = String::new();
@@ -235,9 +250,6 @@ fn double_quote_supression(curr_input_buffer: String, expanded_buffer: &mut Stri
                 '\"' => {
                     found_pair = true;
                     break;
-                }
-                '\\' => {
-                    unimplemented!()
                 }
                 _ => {
                     //preserve all characters including whitespace
