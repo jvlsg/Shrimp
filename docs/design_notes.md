@@ -42,7 +42,7 @@
 #### Quoting - Supress expansion
   * [x] `'` - **Supresses** ALL expansions
   * [x] `"` - If we place text inside double quotes, all the special characters used by the shell lose their special meaning and are treated as ordinary characters. The **exceptions** are “$”, “\” (backslash), and “`” (back- quote). This means that **word-splitting, pathname expansion, tilde expansion, and brace expansion are suppressed**, but parameter expansion, arithmetic expansion, and command substitution are still carried out
-  * [ ] `\`
+  * [x] `\` - It preserves the literal value of the next character that follows, with the exception of newline. If a \newline pair appears, and the backslash itself is not quoted, the \newline is treated as a line continuation (that is, it is removed from the input stream and effectively ignored). 
     * Ignore new line
     * \n 	newline 	Adding blank lines to text
     * \t 	tab 	Inserting horizontal tabs to text

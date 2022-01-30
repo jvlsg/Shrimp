@@ -60,12 +60,13 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     let mut split_input: Vec<String> = Vec::with_capacity(input_raw.len()); //Worst case scenario, each char is whitespace separated
     let mut expanded_buffer = String::with_capacity(input_raw.len());
 
+    let mut new_line_buffer = String::new();
     let mut leftover_buffer = String::new();
     let mut input_iter = input_raw.chars().peekable();
     while let Some(c) = input_iter.next() {
         match c {
             '$' => {
-                input_iter = return_leftover_chars_peekable(
+                input_iter = set_owner_get_chars_peekable(
                     expand_env_var(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
@@ -85,22 +86,31 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
                 //TODO else, log?
             }
             '\'' => {
-                input_iter = return_leftover_chars_peekable(
+                input_iter = set_owner_get_chars_peekable(
                     single_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
             }
             '\"' => {
-                input_iter = return_leftover_chars_peekable(
+                input_iter = set_owner_get_chars_peekable(
                     double_quote_supression(input_iter.by_ref().collect(), &mut expanded_buffer),
                     &mut leftover_buffer,
                 );
             }
             '\\' => {
-                unimplemented!()
+                //Supresses the next character. Exception taken for '\n', in that case read the next line and process it.
+                match input_iter.peek() {
+                    Some('\n') => {
+                        read_line_into_secondary_prompt(&mut new_line_buffer);
+                        input_iter = new_line_buffer.chars().peekable();
+                    }
+                    Some(_) => {
+                        expanded_buffer.push(input_iter.next().unwrap());
+                    }
+                    None => (),
+                }
             }
             _ if c.is_whitespace() => {
-                dbg!("Current Word", &expanded_buffer);
                 //We don't want to **clone** a String with the same capacity as expanded_buffer
                 // .as_str().to_string() will allocate only the needed space,
                 // while ownership of expanded_buffer remains in this function
@@ -111,12 +121,10 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
                 expanded_buffer.push(c);
             }
         }
-        // Todo add a if !leftover_buffer.is_empty() { input_iter = leftover.chars() }
     }
 
-    //sanity checking
+    //sanity checking to avoid adding empty String to split input
     if !expanded_buffer.is_empty() {
-        // expanded_input.push_str(&expanded_buffer);
         split_input.push(expanded_buffer.as_str().to_string());
     }
 
@@ -242,7 +250,7 @@ fn double_quote_supression(curr_input_buffer: String, expanded_buffer: &mut Stri
             dbg!(&expanded_buffer);
             match c {
                 '$' => {
-                    curr_input_iter = return_leftover_chars(
+                    curr_input_iter = set_owner_get_chars(
                         expand_env_var(curr_input_iter.by_ref().collect(), expanded_buffer),
                         &mut leftover_buffer,
                     );
@@ -281,16 +289,17 @@ fn get_next_word_whitespace_separated(
     next_word
 }
 
-fn return_leftover_chars(leftover_value: String, leftover_buffer: &mut String) -> std::str::Chars {
-    *leftover_buffer = leftover_value;
-    leftover_buffer.chars()
+/// Stores the a value (usually from a function) into a **longer living** owner variable. Returns the chars iterator of the buffer
+fn set_owner_get_chars(value: String, owner: &mut String) -> std::str::Chars {
+    *owner = value;
+    owner.chars()
 }
 
-fn return_leftover_chars_peekable(
-    leftover_value: String,
-    leftover_buffer: &mut String,
+fn set_owner_get_chars_peekable(
+    value: String,
+    owner: &mut String,
 ) -> std::iter::Peekable<std::str::Chars> {
-    return_leftover_chars(leftover_value, leftover_buffer).peekable()
+    set_owner_get_chars(value, owner).peekable()
 }
 
 mod test {
