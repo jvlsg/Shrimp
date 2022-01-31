@@ -26,7 +26,6 @@ fn read_line_into_secondary_prompt(buf: &mut String) {
 }
 
 pub fn read_user_input() -> Vec<String> {
-    //TODO modularize this in a "InputHandler"
     let mut input_raw = String::new();
 
     let mut split_input = vec![];
@@ -35,13 +34,6 @@ pub fn read_user_input() -> Vec<String> {
 
     loop {
         match expand(&input_raw, &mut split_input) {
-            //CURRENT PROBLEM - IF THERE'S AN UNCLOSED TERMINATOR (PAIR NOT FOUND), WE NEED TO READ MORE UNTIL WE FIND A TERMINATOR. AT THE SAME TIME, WHEN WE READ THE NEXT LINE, WE NEED TO STORE THE LAST STATUS, I.E. WE NEED TO KNOW THAT WE'LL BE LOOKING FOR THE PAIR. OR IN THE CASE OF LINES ENDING WITH `\` UNTIL THERE'S A LINE WITHOUT `\`
-
-            //WHAT IF WE ENCAPSULATE THIS LOGIC INTO A "INPUT HANDLER" THAT WILL LOOP UNTIL IT GETS A OK(DONE) FROM THE PREPROCESSOR, AND STORES THE LAST RESULTS IN A STACK OF SOME SORT TO HANDLE EXCEPTIONS?
-
-            //E.G. input handler reads line, passes to preprocessor which finds only one `'` and returns OK(PairNotFound(')). Input processor reads next line and feeds it to the preprocessor. But ideally it would load it straight into the Singlequote expansion. Should we pass the last result as an argument? Or the "llast results" stack?
-
-            //What if we get the mainline from the preprocessor into the input handler main loop?
             Ok(_) => break,
             // Err(ExpansionError::PairNotFound(c)) => {
             //     //
@@ -140,7 +132,8 @@ fn expand_env_var(input_buffer: String, expanded_buffer: &mut String) -> String 
     //Get up until a delimiter... i.e. read alphanumeric and _
     let (var_name, _) = input_buffer
         .split_once(|c| !char::is_alphanumeric(c) && c != '_')
-        .unwrap_or_default();
+        .unwrap_or((&input_buffer, &""));
+    // .unwrap_or_default();
 
     dbg!(&var_name);
     if let Ok(value) = env::var(var_name) {
@@ -153,54 +146,49 @@ fn expand_env_var(input_buffer: String, expanded_buffer: &mut String) -> String 
 }
 
 //Todo
-fn expand_pathname(
-    input_iter: &mut std::iter::Peekable<std::str::Chars>,
-    expanded_buffer: &mut String,
-) -> std::io::Result<()> {
-    //See contents of expanded_buffer - if it forms a path
-    //Get before * -
-    let mut dir_path = if expanded_buffer.is_empty() {
-        std::env::current_dir()?
-    } else {
-        path::PathBuf::from(&expanded_buffer)
-    };
-    //Beginning of filename, if exists
-    let mut before_star = None;
+// fn expand_pathname(input_buffer: String, expanded_buffer: &mut String) -> String {
+//     //See contents of expanded_buffer - if it forms a path
+//     //Get before * -
+//     let mut dir_path = if expanded_buffer.is_empty() {
+//         std::env::current_dir()?
+//     } else {
+//         path::PathBuf::from(&expanded_buffer)
+//     };
+//     //Beginning of filename, if exists
+//     let mut before_star = None;
 
-    // What if after * is another *? Recursive?
-    if let Some(file_name) = dir_path.file_name() {
-        match file_name.to_str() {
-            Some(s) => before_star = Some(String::from(s)),
-            None => before_star = None,
-        }
-    }
+//     // What if after * is another *? Recursive?
+//     if let Some(file_name) = dir_path.file_name() {
+//         match file_name.to_str() {
+//             Some(s) => before_star = Some(String::from(s)),
+//             None => before_star = None,
+//         }
+//     }
 
-    dir_path.pop();
+//     dir_path.pop();
 
-    let after_star = get_next_word_whitespace_separated(input_iter);
+//     let after_star = get_next_word_whitespace_separated(input_iter);
 
-    dbg!(&dir_path);
-    dbg!(&before_star);
-    dbg!(&after_star);
+//     dbg!(&dir_path);
+//     dbg!(&before_star);
+//     dbg!(&after_star);
 
-    // fs::read_dir(dir_path)?
-    //     .filter_map(|entry| entry.ok())
-    //     .filter_map(|entry| entry.file_name().into_string().ok())
-    //     .filter(|entry|
-    //         if before_star.is_some(){
-    //             entry.starts_with(before_star)
-    //         }else{
+//     // fs::read_dir(dir_path)?
+//     //     .filter_map(|entry| entry.ok())
+//     //     .filter_map(|entry| entry.file_name().into_string().ok())
+//     //     .filter(|entry|
+//     //         if before_star.is_some(){
+//     //             entry.starts_with(before_star)
+//     //         }else{
 
-    //         }
-    //     );
+//     //         }
+//     //     );
+//     String::new()
+//     //if before_star not empty ->.starts_with(before_star)
+//     //if after_star not empty .ends_with(after_star)
 
-    Ok(())
-
-    //if before_star not empty ->.starts_with(before_star)
-    //if after_star not empty .ends_with(after_star)
-
-    //Loop over all
-}
+//     //Loop over all
+// }
 
 /// Supresses all expansions
 /// Gets ownership of a String w/ all input provided from the user so far.
@@ -304,15 +292,38 @@ fn set_owner_get_chars_peekable(
 
 mod test {
     use super::*;
-    //     #[test]
-    //     fn simple_env() {
-    //         let key = "KEY";
-    //         env::set_var(key, "VALUE");
-    //         assert_eq!(
-    //             expand("echo $KEY"),
-    //             vec![String::from("echo"), String::from("VALUE")]
-    //         );
-    //     }
+    #[test]
+    fn success_expand_env() {
+        let key = "SOME_KEY";
+        env::set_var(key, "VALUE");
+
+        let mut input_expanded = vec![];
+
+        assert!(expand("echo $SOME_KEY", &mut input_expanded).is_ok());
+        assert_eq!(
+            input_expanded,
+            vec![String::from("echo"), String::from("VALUE")]
+        );
+    }
+
+    #[test]
+    fn fail_expand_env_non_existing_env() {
+        let mut input_expanded = vec![];
+
+        assert!(expand("echo $NON_EXISTING", &mut input_expanded).is_ok());
+        assert_eq!(input_expanded, vec![String::from("echo")]);
+    }
+
+    #[test]
+    fn success_single_quote() {
+        let mut input_expanded = vec![];
+        assert!(expand("bla '~\" $HOME\\*' ", &mut input_expanded).is_ok());
+
+        assert_eq!(
+            input_expanded,
+            vec![String::from("bla"), "~\" $HOME\\*".to_owned()]
+        );
+    }
 
     //     #[test]
     //     fn simple_pathname() {
