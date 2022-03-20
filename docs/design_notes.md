@@ -21,7 +21,7 @@
 - [x] `$` env variables expansion
 
 - [ ] `*` String Wildcard Pathname expansion. matches any (possibly empty) sequence of characters.
-  * `D*` , `*.rs` , `/usr/*/share`
+  * `D*`, `~/Documents/D*` , `*.rs` , `/usr/*/share`
 
 - [ ] `**` Recursive string Pathname expansion , matches the current directory and arbitrary subdirectories - Must be an entire path component
   - `a/**/b` is valid, but `a**/b` or `a/**b` is not
