@@ -58,6 +58,9 @@
   * `echo Number_{1..5}` => `Number_1 Number_2 Number_3 Number_4 Number_5`
 * [ ] Command Substitution? `echo $(ls)`
 
+##
+- https://github.com/kkawakam/rustyline
+
 # Sources / Useful links
 - https://gitlab.com/monaco/posixeg/-/blob/master/exercises/shell/foosh.txt
 - https://doc.rust-lang.org/std/process/index.html
