@@ -8,7 +8,8 @@ use dirs;
 
 //POSSIBLY - CHANGE EXPANSION ERROR FOR ACTUAL ERRORS. HAVE A ENUM FOR THE OK STATUSES THAT THE INPUT HANDLER WILL NEED TO HANDLE
 pub enum ExpansionError {
-    EnvVarError,
+    EnvVar,
+    WildcardMatch(String),
 }
 
 fn read_line_into_main_prompt(buf: &mut String) {
@@ -55,6 +56,7 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     let mut new_line_buffer = String::new();
     let mut leftover_buffer = String::new();
     let mut input_iter = input_raw.chars().peekable();
+    // TODO make expansions return Result. If Error, don't run the command
     while let Some(c) = input_iter.next() {
         match c {
             '$' => {
@@ -175,7 +177,6 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
     // (prefix) The remainder between base_dir and the first '*', if any.
     // (intermediates) Should there be several '*' in the level, it's the text between two of them
     // (suffix) Everything in the file name after '*' , e.g. extensions, etc.
-    // (child_path) sub-directories/files that are under the dirs to be expanded, if any.
 
     //There can be multiple '*' in the same level of the fs hierarchy we're checking.
     // This function will handle this
@@ -183,18 +184,6 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
     // We can have multiple, separate '*' - my/dir/*/sub_dir/* -
     // This function will only handle wildcards ONE level of the fs hierarchy.
     // It will enumerate existing matches and re-add them to the input_buffer for the main loop to re-process
-
-    // let mut dir_path = if curr_expanded_buffer.is_empty() {
-    //     match std::env::current_dir() {
-    //         Ok(path) => path,
-    //         Err(_error) => {
-    //             eprintln!("No permission access to current dir, or it does not exist");
-    //             return String::new();
-    //         }
-    //     }
-    // } else {
-    //     path::PathBuf::from(&curr_expanded_buffer)
-    // };
 
     // Auxiliar function used to select which entries are a match
     fn is_wildcard_match(
@@ -210,9 +199,11 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
             });
     }
 
+    dbg!(&curr_expanded_buffer);
+    dbg!(&input_buffer);
     // TODO change to Option for the ones that make sense below
     let base_dir_and_prefix = PathBuf::from(&curr_expanded_buffer);
-    dbg!(&base_dir_and_prefix);
+
     let mut base_dir_path = PathBuf::new();
     let mut wildcard_prefix = String::new();
     let mut wildcard_intermediates: Vec<String> = vec![];
@@ -222,13 +213,18 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
     if base_dir_and_prefix.exists() {
         base_dir_path = base_dir_and_prefix
     } else {
-        // ls Documents/Books/RPG/*.pdf is failing
-        // BUG failed wildcard, from wrong file, is crashing ^
-        // Check if parent exists, return if it doesn't (or propagate a NONE base_dir_path)
         base_dir_path = base_dir_and_prefix
             .parent()
             .unwrap_or(&Path::new("./"))
             .to_path_buf();
+
+        if !base_dir_path.exists() {
+            eprintln!(
+                "Error matching wildcard - {} does not exist",
+                base_dir_path.to_str().unwrap_or_default()
+            );
+            return input_buffer;
+        }
 
         wildcard_prefix = base_dir_and_prefix
             .file_name()
@@ -244,14 +240,21 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
 
     // Includes intermediates , other '*' , the suffix and child path
     let remaining_path = PathBuf::from(remaining_path);
-
     let mut remaining_path_iter = remaining_path.components();
 
+    // Get Intermediates
     if let Some(Component::Normal(first_component)) = remaining_path_iter.next() {
-        let intermediates_and_suffix = first_component.to_str().unwrap_or_default().to_string();
-        let mut intermediates_and_suffix = intermediates_and_suffix.split("*").collect::<Vec<_>>();
-        //TODO double check logic on this unwrap
-        wildcard_suffix = intermediates_and_suffix.pop().unwrap().to_owned();
+        let mut intermediates_and_suffix = first_component
+            .to_str()
+            .unwrap_or_default()
+            .split("*")
+            .collect::<Vec<&str>>();
+
+        wildcard_suffix = intermediates_and_suffix
+            .pop()
+            .unwrap_or_default()
+            .to_owned();
+
         wildcard_intermediates = intermediates_and_suffix
             .into_iter()
             .map(|e| e.to_owned())
@@ -260,21 +263,16 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
 
     let child_path: PathBuf = remaining_path_iter.collect();
 
-    //TODO treat possible Err on read_dir
-    //TODO possibly order results?
-
-    // Inside the "vase_dir, we list the contents in that level.
-
     dbg!(&base_dir_path);
     dbg!(&wildcard_prefix);
     dbg!(&wildcard_intermediates);
     dbg!(&wildcard_suffix);
 
+    //TODO treat possible Err on read_dir
     let mut entries = fs::read_dir(base_dir_path)
         .unwrap()
         .into_iter()
         .filter_map(|e| e.ok())
-        // .filter_map(|e| e.file_name().to_os_string().into_string().ok())
         .map(|e| e.path())
         .filter(|e| {
             is_wildcard_match(
@@ -289,32 +287,37 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
         })
         .collect::<Vec<PathBuf>>();
 
-    // BUG just appending is making things strange - change from str joins to PathBuf
-    //ls Desktop/*/test
-    //    "dir_btest",
-    //        "dir_atest",
-
-    //BUG remove "./" from the beginning if base_dir_path == ""
+    //If has child path, ignore all files
     if child_path.capacity() != 0 {
+        entries = entries
+            .into_iter()
+            .filter(|e| e.is_dir())
+            .collect::<Vec<_>>();
         entries.iter_mut().for_each(|e| e.push(&child_path));
     }
 
-    dbg!(&entries);
-    //We have a list of all possibilities. To avoid having to implement recursion
-    //We append all possibilities to the input_buffer and send it to return to the main loop.
-
-    //Clear curr_expanded buffer so Main loop has a fresh start
-    curr_expanded_buffer.clear();
-
-    //TODO If the entries have whitespaces in them, they must be espaced before appending
-    let mut joined_entries = entries
+    let joined_entries = entries
         .iter()
         .filter_map(|e| e.to_str())
-        .collect::<Vec<&str>>()
+        .map(|e| {
+            let mut e_owned = String::from(e);
+            //remove "./" from the beginning if user didn't explicitly added it
+            if e.starts_with("./") && !curr_expanded_buffer.starts_with("./") {
+                e_owned = e.trim_start_matches("./").to_owned();
+            }
+            //If the entries have whitespaces in them, they must be quoted before appending
+            if e.contains(|c: char| c.is_whitespace()) {
+                e_owned = format!("'{}'", e)
+            }
+            e_owned
+        })
+        .collect::<Vec<String>>()
         .join(" ");
 
-    joined_entries.push_str(input_buffer);
-    joined_entries
+    dbg!(&joined_entries);
+    //Clear curr_expanded buffer so Main loop has a fresh start
+    curr_expanded_buffer.clear();
+    format!("{} {}", joined_entries, input_buffer)
 }
 
 /// Supresses all expansions
@@ -495,17 +498,18 @@ mod test {
         fs::create_dir(&test_dir).unwrap();
         fs::File::create(&file_1).unwrap();
 
-        let mut input_expanded = vec![];
+        // let mut input_expanded_1 = vec![];
+        let mut input_expanded_2 = vec![];
 
-        assert!(expand("tests/dir/*.txt", &mut input_expanded).is_ok());
-        assert_eq!(input_expanded, vec!["tests/dir/file_1.txt".to_owned()]);
-
-        input_expanded.clear();
-
-        assert!(expand("./tests/dir/*.txt", &mut input_expanded).is_ok());
-        assert_ne!(input_expanded, vec!["./tests/dir/file_1.txt".to_owned()]);
-
+        // let result_1 = expand("tests/dir/*.txt", &mut input_expanded_1);
+        let result_2 = expand("./*/d*r/*.txt", &mut input_expanded_2);
         fs::remove_file(&file_1).unwrap();
         fs::remove_dir(&test_dir).unwrap();
+
+        // assert!(result_1.is_ok());
+        // assert_eq!(input_expanded_1, vec!["tests/dir/file_1.txt".to_owned()]);
+
+        assert!(result_2.is_ok());
+        assert_eq!(input_expanded_2, vec!["./tests/dir/file_1.txt".to_owned()]);
     }
 }
