@@ -1,15 +1,40 @@
 use std::{
-    env, fs,
+    env, error, fmt,
+    fmt::Display,
+    fs,
     io::{self, Write},
     path::{Component, Path, PathBuf},
 };
 
 use dirs;
 
-//POSSIBLY - CHANGE EXPANSION ERROR FOR ACTUAL ERRORS. HAVE A ENUM FOR THE OK STATUSES THAT THE INPUT HANDLER WILL NEED TO HANDLE
+#[derive(Debug)]
 pub enum ExpansionError {
-    EnvVar,
+    EnvVar(String),
     WildcardMatch(String),
+}
+
+impl From<io::Error> for ExpansionError {
+    fn from(error: io::Error) -> Self {
+        ExpansionError::WildcardMatch(error.to_string())
+    }
+}
+
+impl From<env::VarError> for ExpansionError {
+    fn from(error: env::VarError) -> Self {
+        ExpansionError::EnvVar(error.to_string())
+    }
+}
+
+impl error::Error for ExpansionError {}
+
+impl Display for ExpansionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self) {
+            ExpansionError::EnvVar(s) => write!(f, "Env Var error - {}", s),
+            ExpansionError::WildcardMatch(s) => write!(f, "Wildcard error - {}", s),
+        }
+    }
 }
 
 fn read_line_into_main_prompt(buf: &mut String) {
@@ -36,12 +61,9 @@ pub fn read_user_input() -> Vec<String> {
     loop {
         match expand(&input_raw, &mut split_input) {
             Ok(_) => break,
-            // Err(ExpansionError::PairNotFound(c)) => {
-            //     //
-            // }
-            _ => {
-                dbg!("Erro");
-                ()
+            Err(error) => {
+                eprintln!("{}", error);
+                return vec![];
             }
         }
     }
@@ -56,22 +78,21 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
     let mut new_line_buffer = String::new();
     let mut leftover_buffer = String::new();
     let mut input_iter = input_raw.chars().peekable();
-    // TODO make expansions return Result. If Error, don't run the command
+
     while let Some(c) = input_iter.next() {
         match c {
             '$' => {
                 input_iter = set_owner_get_chars_peekable(
-                    expand_env_var(input_iter.by_ref().collect(), &mut curr_expansion_buffer),
+                    expand_env_var(input_iter.by_ref().collect(), &mut curr_expansion_buffer)?,
                     &mut leftover_buffer,
                 );
             }
             '*' => {
-                //TODO Check if there's another * to perform recursive?:w
                 input_iter = set_owner_get_chars_peekable(
                     expand_pathname_wildcard(
                         input_iter.by_ref().collect(),
                         &mut curr_expansion_buffer,
-                    ),
+                    )?,
                     &mut leftover_buffer,
                 );
             }
@@ -104,7 +125,7 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
                     double_quote_supression(
                         input_iter.by_ref().collect(),
                         &mut curr_expansion_buffer,
-                    ),
+                    )?,
                     &mut leftover_buffer,
                 );
             }
@@ -152,7 +173,10 @@ The function then performs it's expansion, pushing the new characters to curr_ex
 
 /// Replaces the first string composed of alphanumeric and `_` with the value of a environment variable of the same name, or blank "" as a default
 /// Returns any leftover input
-fn expand_env_var(input_buffer: String, curr_expanded_buffer: &mut String) -> String {
+fn expand_env_var(
+    input_buffer: String,
+    curr_expanded_buffer: &mut String,
+) -> Result<String, env::VarError> {
     //Get var name
     //Get up until a delimiter... i.e. read alphanumeric and _
     let (var_name, _) = input_buffer
@@ -161,16 +185,20 @@ fn expand_env_var(input_buffer: String, curr_expanded_buffer: &mut String) -> St
     // .unwrap_or_default();
 
     dbg!(&var_name);
-    if let Ok(value) = env::var(var_name) {
-        curr_expanded_buffer.push_str(&value);
-    }
-    input_buffer
+    let value = env::var(var_name)?;
+
+    curr_expanded_buffer.push_str(&value);
+
+    Ok(input_buffer
         .strip_suffix(var_name)
         .unwrap_or_default()
-        .to_owned()
+        .to_owned())
 }
 
-fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut String) -> String {
+fn expand_pathname_wildcard(
+    input_buffer: String,
+    curr_expanded_buffer: &mut String,
+) -> io::Result<String> {
     // base_dir/{prefix}*[{intermediate}*...]{suffix}[/{child_path}]
 
     // (base_dir) We need the most complete path possible (i.e. the nearest dir) up until '*' (remember it can appear in the middle), defaulting to CWD
@@ -201,36 +229,31 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
 
     dbg!(&curr_expanded_buffer);
     dbg!(&input_buffer);
-    // TODO change to Option for the ones that make sense below
     let base_dir_and_prefix = PathBuf::from(&curr_expanded_buffer);
 
     let mut base_dir_path = PathBuf::new();
-    let mut wildcard_prefix = String::new();
+    let mut wildcard_prefix: Option<&str> = None;
     let mut wildcard_intermediates: Vec<String> = vec![];
-    let mut wildcard_suffix = String::new();
+    let mut wildcard_suffix: Option<&str> = None;
 
     // Check if path exists. If not, Check if up until the parent it exists, default to PWD
     if base_dir_and_prefix.exists() {
         base_dir_path = base_dir_and_prefix
     } else {
-        base_dir_path = base_dir_and_prefix
+        base_dir_path = if base_dir_and_prefix
             .parent()
-            .unwrap_or(&Path::new("./"))
-            .to_path_buf();
-
-        if !base_dir_path.exists() {
-            eprintln!(
-                "Error matching wildcard - {} does not exist",
-                base_dir_path.to_str().unwrap_or_default()
-            );
-            return input_buffer;
-        }
+            .unwrap_or(&Path::new(""))
+            .is_dir()
+        {
+            base_dir_and_prefix.parent().unwrap().to_path_buf()
+        } else {
+            PathBuf::from("./")
+        };
 
         wildcard_prefix = base_dir_and_prefix
             .file_name()
             .unwrap_or_default()
             .to_str()
-            .unwrap_or_default()
             .to_owned();
     };
 
@@ -250,10 +273,7 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
             .split("*")
             .collect::<Vec<&str>>();
 
-        wildcard_suffix = intermediates_and_suffix
-            .pop()
-            .unwrap_or_default()
-            .to_owned();
+        wildcard_suffix = intermediates_and_suffix.pop();
 
         wildcard_intermediates = intermediates_and_suffix
             .into_iter()
@@ -268,9 +288,7 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
     dbg!(&wildcard_intermediates);
     dbg!(&wildcard_suffix);
 
-    //TODO treat possible Err on read_dir
-    let mut entries = fs::read_dir(base_dir_path)
-        .unwrap()
+    let mut entries = fs::read_dir(base_dir_path)?
         .into_iter()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -280,12 +298,14 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
                     .unwrap_or_default()
                     .to_str()
                     .unwrap_or_default(),
-                &wildcard_prefix,
+                wildcard_prefix.unwrap_or_default(),
                 &wildcard_intermediates,
-                &wildcard_suffix,
+                wildcard_suffix.unwrap_or_default(),
             )
         })
         .collect::<Vec<PathBuf>>();
+
+    //BUG if nothing is found, we shoul return an error
 
     //If has child path, ignore all files
     if child_path.capacity() != 0 {
@@ -296,7 +316,7 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
         entries.iter_mut().for_each(|e| e.push(&child_path));
     }
 
-    let joined_entries = entries
+    let entries = entries
         .iter()
         .filter_map(|e| e.to_str())
         .map(|e| {
@@ -311,13 +331,25 @@ fn expand_pathname_wildcard(input_buffer: String, curr_expanded_buffer: &mut Str
             }
             e_owned
         })
-        .collect::<Vec<String>>()
-        .join(" ");
+        .collect::<Vec<String>>();
 
-    dbg!(&joined_entries);
     //Clear curr_expanded buffer so Main loop has a fresh start
     curr_expanded_buffer.clear();
-    format!("{} {}", joined_entries, input_buffer)
+
+    let joined_entries = if entries.is_empty() {
+        input_buffer.to_string()
+    } else {
+        let joined_entries = entries.join(" ");
+
+        if !input_buffer.is_empty() {
+            format!("{} {}", joined_entries, input_buffer)
+        } else {
+            joined_entries
+        }
+    };
+
+    dbg!(&joined_entries);
+    Ok(joined_entries)
 }
 
 /// Supresses all expansions
@@ -331,7 +363,6 @@ fn single_quote_supression(curr_input_buffer: String, curr_expanded_buffer: &mut
 
     while !found_pair {
         while let Some(c) = curr_input_iter.next() {
-            dbg!(&curr_expanded_buffer);
             match c {
                 '\'' => {
                     found_pair = true;
@@ -357,7 +388,10 @@ fn single_quote_supression(curr_input_buffer: String, curr_expanded_buffer: &mut
 /// Gets ownership of a String w/ all input provided from the user so far.
 /// Reads all input, including new lines if necessary, until a pair to `"` is found
 /// Leftover input *after* the `"`, if any, is returned and should be used to update the iterator in the main loop
-fn double_quote_supression(curr_input_buffer: String, curr_expanded_buffer: &mut String) -> String {
+fn double_quote_supression(
+    curr_input_buffer: String,
+    curr_expanded_buffer: &mut String,
+) -> Result<String, env::VarError> {
     let mut found_pair = false;
     let mut next_input_buffer = String::new();
     let mut curr_input_iter = curr_input_buffer.chars();
@@ -369,7 +403,7 @@ fn double_quote_supression(curr_input_buffer: String, curr_expanded_buffer: &mut
             match c {
                 '$' => {
                     curr_input_iter = set_owner_get_chars(
-                        expand_env_var(curr_input_iter.by_ref().collect(), curr_expanded_buffer),
+                        expand_env_var(curr_input_iter.by_ref().collect(), curr_expanded_buffer)?,
                         &mut leftover_buffer,
                     );
                 }
@@ -390,7 +424,7 @@ fn double_quote_supression(curr_input_buffer: String, curr_expanded_buffer: &mut
             curr_input_iter = next_input_buffer.chars();
         }
     }
-    curr_input_iter.collect()
+    Ok(curr_input_iter.collect())
 }
 
 /// Stores the a value (usually from a function) into a **longer living** owner variable. Returns the chars iterator of the buffer
@@ -465,6 +499,14 @@ mod test {
 
         input_expanded.clear();
 
+        assert!(expand("Cargo.*", &mut input_expanded).is_ok());
+        assert_eq!(
+            input_expanded,
+            vec!["Cargo.lock".to_owned(), "Cargo.toml".to_owned()]
+        );
+
+        input_expanded.clear();
+
         assert!(expand("./*.toml", &mut input_expanded).is_ok());
         assert_eq!(input_expanded, vec!["./Cargo.toml".to_owned()]);
 
@@ -472,6 +514,7 @@ mod test {
 
         assert!(expand("./C*r*.toml", &mut input_expanded).is_ok());
         assert_eq!(input_expanded, vec!["./Cargo.toml".to_owned()]);
+        //----
         // expand("my/dir/file*.txt");
         // expand("my/dir/*.txt");
         // expand("file*.txt");
