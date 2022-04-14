@@ -198,7 +198,7 @@ fn expand_env_var(
 fn expand_pathname_wildcard(
     input_buffer: String,
     curr_expanded_buffer: &mut String,
-) -> io::Result<String> {
+) -> Result<String, ExpansionError> {
     // base_dir/{prefix}*[{intermediate}*...]{suffix}[/{child_path}]
 
     // (base_dir) We need the most complete path possible (i.e. the nearest dir) up until '*' (remember it can appear in the middle), defaulting to CWD
@@ -213,7 +213,8 @@ fn expand_pathname_wildcard(
     // This function will only handle wildcards ONE level of the fs hierarchy.
     // It will enumerate existing matches and re-add them to the input_buffer for the main loop to re-process
 
-    // Auxiliar function used to select which entries are a match
+    // Auxiliar function used to select which entries are a matchj
+
     fn is_wildcard_match(
         entry: &str,
         prefix: &str,
@@ -227,68 +228,101 @@ fn expand_pathname_wildcard(
             });
     }
 
-    dbg!(&curr_expanded_buffer);
-    dbg!(&input_buffer);
-    let base_dir_and_prefix = PathBuf::from(&curr_expanded_buffer);
+    #[derive(Debug)]
+    struct WildcardComponents {
+        base_dir_path: PathBuf,
+        prefix: Option<String>,
+        wildcard_intermediates: Vec<String>,
+        wildcard_suffix: Option<String>,
+        child_path: PathBuf,
+    }
+    fn get_wildcard_components(
+        curr_expanded_buffer: &str,
+        input_buffer: String,
+    ) -> Result<(WildcardComponents, String), ExpansionError> {
+        let base_dir_and_prefix = PathBuf::from(&curr_expanded_buffer);
 
-    let mut base_dir_path = PathBuf::new();
-    let mut wildcard_prefix: Option<&str> = None;
-    let mut wildcard_intermediates: Vec<String> = vec![];
-    let mut wildcard_suffix: Option<&str> = None;
+        let mut base_dir_path = PathBuf::new();
+        let mut prefix: Option<String> = None;
+        let mut wildcard_intermediates: Vec<String> = vec![];
+        let mut wildcard_suffix: Option<String> = None;
 
-    // Check if path exists. If not, Check if up until the parent it exists, default to PWD
-    if base_dir_and_prefix.exists() {
-        base_dir_path = base_dir_and_prefix
-    } else {
-        base_dir_path = if base_dir_and_prefix
-            .parent()
-            .unwrap_or(&Path::new(""))
-            .is_dir()
-        {
-            base_dir_and_prefix.parent().unwrap().to_path_buf()
+        dbg!(&base_dir_and_prefix);
+        // Check if path exists. If not, Check if up until the parent it exists, default to PWD
+        if base_dir_and_prefix.exists() {
+            base_dir_path = base_dir_and_prefix
+        }
+        // Non-existing base_dir
+        // We have to check the String because PathBuf normalizes trailing slashes
+        else if curr_expanded_buffer.ends_with(std::path::MAIN_SEPARATOR) {
+            return Err(ExpansionError::WildcardMatch(format!(
+                "Non Existing directory {}",
+                base_dir_and_prefix.as_os_str().to_str().unwrap_or_default()
+            )));
         } else {
-            PathBuf::from("./")
+            base_dir_path = if base_dir_and_prefix
+                .parent()
+                .unwrap_or(&Path::new(""))
+                .is_dir()
+            {
+                base_dir_and_prefix.parent().unwrap().to_path_buf()
+            } else {
+                std::env::current_dir()?
+            };
+
+            prefix = base_dir_and_prefix
+                .file_name()
+                .unwrap_or_default()
+                .to_str()
+                .map(String::from)
         };
 
-        wildcard_prefix = base_dir_and_prefix
-            .file_name()
-            .unwrap_or_default()
-            .to_str()
-            .to_owned();
-    };
+        let (remaining_path, input_buffer) = input_buffer
+            .split_once(|c: char| c.is_whitespace())
+            .unwrap_or((&input_buffer, "")); //if no whitespace is present, the rest of input_buffer has to be processed
 
-    let (remaining_path, input_buffer) = input_buffer
-        .split_once(|c: char| c.is_whitespace())
-        .unwrap_or((&input_buffer, "")); //if no whitespace is present, the rest of input_buffer has to be processed
+        // Includes intermediates , other '*' , the suffix and child path
+        let remaining_path = PathBuf::from(remaining_path);
+        let mut remaining_path_iter = remaining_path.components();
 
-    // Includes intermediates , other '*' , the suffix and child path
-    let remaining_path = PathBuf::from(remaining_path);
-    let mut remaining_path_iter = remaining_path.components();
+        // Get Intermediates
+        if let Some(Component::Normal(first_component)) = remaining_path_iter.next() {
+            let mut intermediates_and_suffix = first_component
+                .to_str()
+                .unwrap_or_default()
+                .split("*")
+                .collect::<Vec<&str>>();
 
-    // Get Intermediates
-    if let Some(Component::Normal(first_component)) = remaining_path_iter.next() {
-        let mut intermediates_and_suffix = first_component
-            .to_str()
-            .unwrap_or_default()
-            .split("*")
-            .collect::<Vec<&str>>();
+            wildcard_suffix = intermediates_and_suffix.pop().map(String::from);
 
-        wildcard_suffix = intermediates_and_suffix.pop();
+            wildcard_intermediates = intermediates_and_suffix
+                .into_iter()
+                .map(|e| e.to_owned())
+                .collect();
+        }
 
-        wildcard_intermediates = intermediates_and_suffix
-            .into_iter()
-            .map(|e| e.to_owned())
-            .collect();
+        let child_path: PathBuf = remaining_path_iter.collect();
+
+        Ok((
+            WildcardComponents {
+                base_dir_path,
+                prefix,
+                wildcard_intermediates,
+                wildcard_suffix,
+                child_path,
+            },
+            input_buffer.to_owned(),
+        ))
     }
 
-    let child_path: PathBuf = remaining_path_iter.collect();
+    dbg!(&curr_expanded_buffer);
+    dbg!(&input_buffer);
 
-    dbg!(&base_dir_path);
-    dbg!(&wildcard_prefix);
-    dbg!(&wildcard_intermediates);
-    dbg!(&wildcard_suffix);
+    let (wildcard_components, input_buffer) =
+        get_wildcard_components(&curr_expanded_buffer, input_buffer)?;
 
-    let mut entries = fs::read_dir(base_dir_path)?
+    dbg!(&wildcard_components);
+    let mut entries = fs::read_dir(&wildcard_components.base_dir_path)?
         .into_iter()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
@@ -298,22 +332,36 @@ fn expand_pathname_wildcard(
                     .unwrap_or_default()
                     .to_str()
                     .unwrap_or_default(),
-                wildcard_prefix.unwrap_or_default(),
-                &wildcard_intermediates,
-                wildcard_suffix.unwrap_or_default(),
+                wildcard_components
+                    .prefix
+                    .as_ref()
+                    .unwrap_or(&String::new()),
+                &wildcard_components.wildcard_intermediates,
+                wildcard_components
+                    .wildcard_suffix
+                    .as_ref()
+                    .unwrap_or(&String::new()),
             )
         })
         .collect::<Vec<PathBuf>>();
 
-    //BUG if nothing is found, we shoul return an error
+    //BUG if nothing is found, we should return an error
+    //Possibly - instead of adding to input_buffer, we iterate until we run out ?
+    // if entries.is_empty() {
+    //     curr_expanded_buffer.clear();
+    //     return Err(ExpansionError::WildcardMatch("No match found".to_owned()));
+    // }
 
     //If has child path, ignore all files
-    if child_path.capacity() != 0 {
+    if wildcard_components.child_path.capacity() != 0 {
         entries = entries
             .into_iter()
             .filter(|e| e.is_dir())
             .collect::<Vec<_>>();
-        entries.iter_mut().for_each(|e| e.push(&child_path));
+
+        entries
+            .iter_mut()
+            .for_each(|e| e.push(&wildcard_components.child_path));
     }
 
     let entries = entries
@@ -541,18 +589,33 @@ mod test {
         fs::create_dir(&test_dir).unwrap();
         fs::File::create(&file_1).unwrap();
 
-        // let mut input_expanded_1 = vec![];
+        let mut input_expanded_1 = vec![];
         let mut input_expanded_2 = vec![];
 
-        // let result_1 = expand("tests/dir/*.txt", &mut input_expanded_1);
+        let result_1 = expand("tests/dir/*.txt", &mut input_expanded_1);
         let result_2 = expand("./*/d*r/*.txt", &mut input_expanded_2);
         fs::remove_file(&file_1).unwrap();
         fs::remove_dir(&test_dir).unwrap();
 
-        // assert!(result_1.is_ok());
-        // assert_eq!(input_expanded_1, vec!["tests/dir/file_1.txt".to_owned()]);
+        assert!(result_1.is_ok());
+        assert_eq!(input_expanded_1, vec!["tests/dir/file_1.txt".to_owned()]);
 
         assert!(result_2.is_ok());
         assert_eq!(input_expanded_2, vec!["./tests/dir/file_1.txt".to_owned()]);
+
+        let mut input_expanded = vec![];
+        assert!(expand("../src/main*s", &mut input_expanded).is_ok());
+        assert_eq!(input_expanded, vec!["../src/main.rs".to_owned()]);
+    }
+
+    #[test]
+    fn fail_wildcard_non_existing_base_dir() {
+        let mut input_expanded_1 = vec![];
+
+        let result_1 = expand(
+            "../a_folder_that_does_not_exist/*.txt",
+            &mut input_expanded_1,
+        );
+        assert!(result_1.is_err());
     }
 }
