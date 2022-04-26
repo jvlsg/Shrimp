@@ -213,7 +213,7 @@ fn expand_pathname_wildcard(
     // This function will only handle wildcards ONE level of the fs hierarchy.
     // It will enumerate existing matches and re-add them to the input_buffer for the main loop to re-process
 
-    // Auxiliar function used to select which entries are a matchj
+    // Auxiliar function used to select which entries are a match
 
     fn is_wildcard_match(
         entry: &str,
@@ -267,7 +267,8 @@ fn expand_pathname_wildcard(
             {
                 base_dir_and_prefix.parent().unwrap().to_path_buf()
             } else {
-                std::env::current_dir()?
+                PathBuf::from("./")
+                // std::env::current_dir()?
             };
 
             prefix = base_dir_and_prefix
@@ -604,8 +605,8 @@ mod test {
         assert_eq!(input_expanded_2, vec!["./tests/dir/file_1.txt".to_owned()]);
 
         let mut input_expanded = vec![];
-        assert!(expand("../src/main*s", &mut input_expanded).is_ok());
-        assert_eq!(input_expanded, vec!["../src/main.rs".to_owned()]);
+        assert!(expand("../Shrimp/src/main*s", &mut input_expanded).is_ok());
+        assert_eq!(input_expanded, vec!["../Shrimp/src/main.rs".to_owned()]);
     }
 
     #[test]
