@@ -20,7 +20,7 @@
 
 - [x] `$` env variables expansion
 
-- [ ] `*` String Wildcard Pathname expansion. matches any (possibly empty) sequence of characters.
+- [x] `*` String Wildcard Pathname expansion. matches any (possibly empty) sequence of characters.
   * `D*`, `~/Documents/D*` , `*.rs` , `/usr/*/share`
 
 - [ ] `**` Recursive string Pathname expansion , matches the current directory and arbitrary subdirectories - Must be an entire path component
@@ -58,7 +58,7 @@
   * `echo Number_{1..5}` => `Number_1 Number_2 Number_3 Number_4 Number_5`
 * [ ] Command Substitution? `echo $(ls)`
 
-##
+## Line
 - https://github.com/kkawakam/rustyline
 
 # Sources / Useful links
