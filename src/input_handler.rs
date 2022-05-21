@@ -30,7 +30,7 @@ impl error::Error for ExpansionError {}
 
 impl Display for ExpansionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match (&self) {
+        match &self {
             ExpansionError::EnvVar(s) => write!(f, "Env Var error - {}", s),
             ExpansionError::WildcardMatch(s) => write!(f, "Wildcard error - {}", s),
         }
@@ -131,8 +131,10 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
             }
             '\\' => {
                 //Supresses the next character. Exception taken for '\n', in that case read the next line and process it.
+                // TODO we should expand the line read in the secondary prompt
                 match input_iter.peek() {
                     Some('\n') => {
+                        new_line_buffer.clear();
                         read_line_into_secondary_prompt(&mut new_line_buffer);
                         input_iter = new_line_buffer.chars().peekable();
                     }
@@ -347,6 +349,7 @@ fn expand_pathname_wildcard(
         .collect::<Vec<PathBuf>>();
 
     //BUG if nothing is found, we should return an error
+    // Not exactly a bug, but we're failing silently
     //Possibly - instead of adding to input_buffer, we iterate until we run out ?
     // if entries.is_empty() {
     //     curr_expanded_buffer.clear();
