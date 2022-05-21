@@ -6,7 +6,7 @@ use std::{
 };
 
 /// Built-in Function type, functions of this type implement the actual logic of the built-in commands in their respective files `cd`, `exit`, etc.Builtin
-/// 
+///
 /// It takes as input a Vec for Args, and an array of Bytes as Stdin
 pub type BuiltinFn = fn(Vec<String>, &[u8]) -> StepOutput;
 
