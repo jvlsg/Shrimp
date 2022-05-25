@@ -6,7 +6,16 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use rustyline::error::ReadlineError;
+use rustyline::Editor;
+
 use dirs;
+
+#[derive(Debug)]
+pub enum InputHandlingError {
+    Expansion(ExpansionError),
+    ReadLine(ReadlineError),
+}
 
 #[derive(Debug)]
 pub enum ExpansionError {
@@ -37,12 +46,20 @@ impl Display for ExpansionError {
     }
 }
 
-fn read_line_into_main_prompt(buf: &mut String) {
-    //PROMPT
-    print!("$ ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(buf).unwrap();
+enum Prompt {
+    Primary,
+    Secondary,
 }
+
+//TODO
+// Would be nice to have the prompt be loaded by configs
+// pub struct InputHandler {
+//     line_editor: Editor<()>,
+// }
+
+// impl InputHandler {
+//     pub fn new() {}
+// }
 
 fn read_line_into_secondary_prompt(buf: &mut String) {
     //PROMPT
@@ -51,23 +68,17 @@ fn read_line_into_secondary_prompt(buf: &mut String) {
     io::stdin().read_line(buf).unwrap();
 }
 
-pub fn read_user_input() -> Vec<String> {
-    let mut input_raw = String::new();
-
+pub fn read_user_input() -> Result<Vec<String>, InputHandlingError> {
     let mut split_input = vec![];
+    let mut line_editor = Editor::<()>::new();
 
-    read_line_into_main_prompt(&mut input_raw);
+    let line = line_editor
+        .readline(">> ")
+        .map_err(|e| InputHandlingError::ReadLine(e))?;
 
-    loop {
-        match expand(&input_raw, &mut split_input) {
-            Ok(_) => break,
-            Err(error) => {
-                eprintln!("{}", error);
-                return vec![];
-            }
-        }
-    }
-    split_input
+    expand(&line, &mut split_input).map_err(|e| InputHandlingError::Expansion(e))?;
+
+    Ok(split_input)
 }
 
 ///Handles expansions / metacharacters the user can input on a line.
