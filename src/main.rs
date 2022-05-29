@@ -1,23 +1,31 @@
-use std::io::{self, Write};
-
-use shrimp::{input_handler, Pipeline};
+use shrimp::{
+    input_handler::{InputHandler, InputHandlingError},
+    Config, Pipeline,
+};
 
 fn main() {
-    loop {
-        if let Ok(split_input) = input_handler::read_user_input() {
-            //3. Implement sublists, pipelines separated with && and ||
-            //4. Implement a List
+    let mut input_handler = InputHandler::new(Config::new());
 
-            if let Ok(p) = Pipeline::new(split_input) {
-                match p.run() {
-                    Ok(_) => {}
-                    Err(msg) => {
-                        eprintln!("{}", msg);
+    loop {
+        match input_handler.read_user_input() {
+            // 3. Implement sublists, pipelines separated with && and ||
+            // 4. Implement a List
+            Ok(split_input) => {
+                if let Ok(p) = Pipeline::new(split_input) {
+                    match p.run() {
+                        Ok(_) => {}
+                        Err(msg) => {
+                            eprintln!("{}", msg);
+                        }
                     }
                 }
             }
-        } else {
-            break;
+            Err(e) => match e {
+                InputHandlingError::Expansion(f) => eprintln!("{}", f),
+                InputHandlingError::ReadLine(_) => {
+                    break;
+                }
+            },
         }
     }
 }
