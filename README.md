@@ -40,8 +40,8 @@ Many tests doing redirections access a set of test files - it's probably a sub-o
   - [x] Files
   - [ ] Network
 - [ ] Background Execution / Job management
-- [ ] History
-- [ ] Expansion
+- [x] History
+- [ ] Expansion - (More basic expansion types are already implemented)
 
 ## More features
 - [ ] Prompt customization
