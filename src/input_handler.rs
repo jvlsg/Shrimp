@@ -6,7 +6,15 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
+use rustyline::{error::ReadlineError, Editor};
+
 use dirs;
+
+#[derive(Debug)]
+pub enum InputHandlingError {
+    Expansion(ExpansionError),
+    ReadLine(ReadlineError),
+}
 
 #[derive(Debug)]
 pub enum ExpansionError {
@@ -37,11 +45,57 @@ impl Display for ExpansionError {
     }
 }
 
-fn read_line_into_main_prompt(buf: &mut String) {
-    //PROMPT
-    print!("$ ");
-    io::stdout().flush().unwrap();
-    io::stdin().read_line(buf).unwrap();
+//TODO
+// Would be nice to have the prompt be loaded by configs
+pub struct InputHandler {
+    line_editor: Editor<()>,
+    history_file: PathBuf,
+}
+
+impl InputHandler {
+    pub fn new(config: crate::Config) -> Self {
+        let mut line_editor = Editor::<()>::with_config(config.line_editor_config().clone());
+
+        line_editor.load_history(config.history_file());
+
+        let history_file = config.history_file().clone();
+        InputHandler {
+            line_editor,
+            history_file,
+        }
+    }
+
+    pub fn read_user_input(&mut self) -> Result<Vec<String>, InputHandlingError> {
+        let mut split_input = vec![];
+
+        let mut readline_result = Ok("".to_owned());
+        loop {
+            //Exception for Ctrl-C , we don't want to close the shell
+            match self.line_editor.readline(">> ") {
+                Ok(s) => {
+                    readline_result = Ok(s);
+                    break;
+                }
+                Err(e) if !matches!(&e, ReadlineError::Interrupted) => {
+                    readline_result = Err(e);
+                    break;
+                }
+                _ => (),
+            }
+        }
+        let line = readline_result.map_err(|e| InputHandlingError::ReadLine(e))?;
+        expand(&line, &mut split_input).map_err(|e| InputHandlingError::Expansion(e))?;
+
+        // Save to History file
+        dbg!(self.line_editor.append_history(&self.history_file));
+
+        Ok(split_input)
+    }
+
+    // TODO migrate functions into input_handler
+    // fn read_user_input_from_secondary_prompt(&mut self) -> String {
+    //     self.line_editor.readline(">> ").unwrap_or_default()
+    // }
 }
 
 fn read_line_into_secondary_prompt(buf: &mut String) {
@@ -49,25 +103,6 @@ fn read_line_into_secondary_prompt(buf: &mut String) {
     print!("> ");
     io::stdout().flush().unwrap();
     io::stdin().read_line(buf).unwrap();
-}
-
-pub fn read_user_input() -> Vec<String> {
-    let mut input_raw = String::new();
-
-    let mut split_input = vec![];
-
-    read_line_into_main_prompt(&mut input_raw);
-
-    loop {
-        match expand(&input_raw, &mut split_input) {
-            Ok(_) => break,
-            Err(error) => {
-                eprintln!("{}", error);
-                return vec![];
-            }
-        }
-    }
-    split_input
 }
 
 ///Handles expansions / metacharacters the user can input on a line.
@@ -130,18 +165,16 @@ fn expand(input_raw: &str, input_processed: &mut Vec<String>) -> Result<(), Expa
                 );
             }
             '\\' => {
-                //Supresses the next character. Exception taken for '\n', in that case read the next line and process it.
-                // TODO we should expand the line read in the secondary prompt
+                //Supresses the next character. Exception taken if it's the final character, in that case read the next line and process it.
                 match input_iter.peek() {
-                    Some('\n') => {
+                    Some(_c) => {
+                        curr_expansion_buffer.push(input_iter.next().unwrap());
+                    }
+                    None => {
                         new_line_buffer.clear();
                         read_line_into_secondary_prompt(&mut new_line_buffer);
                         input_iter = new_line_buffer.chars().peekable();
                     }
-                    Some(_) => {
-                        curr_expansion_buffer.push(input_iter.next().unwrap());
-                    }
-                    None => (),
                 }
             }
             _ if c.is_whitespace() => {

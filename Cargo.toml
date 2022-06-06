@@ -11,3 +11,4 @@ license ="GPL-3.0-or-later"
 
 [dependencies]
 dirs = "4.0.0"
+rustyline = "9.1.2"
