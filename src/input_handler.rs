@@ -68,11 +68,22 @@ impl InputHandler {
     pub fn read_user_input(&mut self) -> Result<Vec<String>, InputHandlingError> {
         let mut split_input = vec![];
 
-        let line = &mut self
-            .line_editor
-            .readline(">> ")
-            .map_err(|e| InputHandlingError::ReadLine(e))?;
-
+        let mut readline_result = Ok("".to_owned());
+        loop {
+            //Exception for Ctrl-C , we don't want to close the shell
+            match self.line_editor.readline(">> ") {
+                Ok(s) => {
+                    readline_result = Ok(s);
+                    break;
+                }
+                Err(e) if !matches!(&e, ReadlineError::Interrupted) => {
+                    readline_result = Err(e);
+                    break;
+                }
+                _ => (),
+            }
+        }
+        let line = readline_result.map_err(|e| InputHandlingError::ReadLine(e))?;
         expand(&line, &mut split_input).map_err(|e| InputHandlingError::Expansion(e))?;
 
         // Save to History file
